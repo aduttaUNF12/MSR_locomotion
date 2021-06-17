@@ -1,3 +1,4 @@
+import math
 from datetime import date
 
 from controller import Robot, Supervisor
@@ -130,7 +131,7 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         self.tree.update(idx, p)
 """
 
-__version__ = '04.30.21'
+__version__ = '06.08.21'
 
 
 # Constants
@@ -140,7 +141,8 @@ MIN_EPSILON = 0.1
 T = 0.1
 BATCH_SIZE = 128
 MAX_EPISODE = 5000
-MEMORY_CAPACITY = 10**10
+# MEMORY_CAPACITY = 10**10
+MEMORY_CAPACITY = 2**20
 # MAX_EPISODE = 10
 UPDATE_PERIOD = 10
 EPISODE = 0
@@ -207,6 +209,7 @@ class ReplayBuffer:
         self.buffer = np.empty(shape=shape, dtype=dtype)
         self.head   = 0
         self.capacity   = len(self.buffer)
+        self.return_buffer_len = 0
 
     def put(self, data):
         """put data to
@@ -216,7 +219,8 @@ class ReplayBuffer:
             data to add
         """
         head = self.head
-        n = len(data)
+        # n = len(data)
+        n = data.size
         if head + n <= self.capacity:
             self.buffer[head:head+n] = data
             self.head = (self.head + n) % self.capacity
@@ -278,10 +282,6 @@ class Action:
 
 # the NN itself
 class LinearDQN(nn.Module):
-    # inputs personal action, and action from each of the modules
-    # number_of_modules = number of modules in the chain
-    # lr = learning rate
-    # n_actions = number of possible actions
     def __init__(self, number_of_modules, lr, n_actions):
         super(LinearDQN, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -328,17 +328,16 @@ class Agent:
         self.Q.load_state_dict(policy_net.state_dict())
         self.Q.eval()
 
+    # Greedy action selection
     def choose_action(self, module_actions):
         if random.random() < (1 - self.epsilon):
 
             state = torch.tensor([module_actions], dtype=torch.float).to(self.Q.device)
             action = self.Q.forward(state)
-            # getting a greedy vector of our actions
-            # print(f"greedy actions: {torch.argmax(action)}")
-            return [torch.argmax(action)]
+            # return [torch.argmax(action)]
+            return [np.argmax(action.to('cpu').detach().numpy())]
         else:
             action = np.random.choice(self.action_space, 1)
-            # print(f"random actions: {action}")
         return action
 
     def decrement_epsilon(self):
@@ -348,12 +347,104 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
+    # def learn(self):
+    #     self.Q.optimizer.zero_grad()
+    #
+    #     # TODO: priority memory
+    #
+    #     transitions = self.database.get_batch()
+    #     # if self.module_number == LEADER_ID:
+    #     #     print(f"TRANSITIONS: {transitions}")
+    #     #     print("===================================")
+    #     #     # print(f"TRANSION CAST: {Transition(*transitions)}")
+    #     #     t = zip(zip(*transitions))
+    #     #     print(f"TRANSITIONS ZIP: {t.__next__()}")
+    #     # transitions = memory.sample(BATCH_SIZE)
+    #     # try:
+    #     batch = Transition(*zip(*transitions))
+    #     # except TypeError:
+    #     #     pass
+    #     # print(f"BATCH STATE: {[*batch.state]}")
+    #     # exit(12)
+    #     # batch = Transition(*transitions)
+    #
+    #     # states_t = torch.tensor([*batch.state], dtype=torch.float).to(self.Q.device)
+    #     states__t = torch.tensor([*batch.next_state], dtype=torch.float).to(self.Q.device)
+    #     # print(f"states_t: {states_t}")
+    #     # print(f"zip(state_t, batch.action): {zip(states_t, batch.action).__init__()}")
+    #     # exit()
+    #     # if LEADER_ID == self.module_number:
+    #     #     # print(f"states_t: {states_t}")
+    #     #     print(f"states_t: {batch.state}")
+    #     #     print("===========================================")
+    #     #     print(f"states__t: {states__t}")
+    #     #     print("===========================================")
+    #     #     print(f"actions: {batch.action}")
+    #     #     print("===========================================")
+    #     #     print(f"actions: {batch.reward}")
+    #     #     print("===========================================")
+    #
+    #     state_action_q_values = []
+    #     # get q value for state
+    #     # for s_t, a in zip(states_t, batch.action):
+    #     for s_t, a in zip(batch.state, batch.action):
+    #         # if LEADER_ID == self.module_number:
+    #         #     print(f"s_t: {s_t} ===================== a: {a}")
+    #         #     state_action_q_values.append(torch.gather(
+    #         #         # policy_net(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+    #         #         # self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+    #         #         self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)),
+    #         #         0, torch.tensor(a, dtype=torch.int64).to(self.Q.device)))
+    #         #
+    #         # exit()
+    #         state_action_q_values.append(torch.gather(
+    #             # policy_net(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+    #             # self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+    #             self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)),
+    #             0, torch.tensor(a, dtype=torch.int64).to(self.Q.device)))
+    #
+    #     expected_next_state_q_values = []
+    #     #  get q value for state_
+    #     for s_q_id, s_q in enumerate(states__t):
+    #         if batch.reward[s_q_id] is None:
+    #             r = batch.reward[s_q_id]
+    #         else:
+    #             r = 0
+    #         expected_next_state_q_values.append(
+    #             (torch.max(policy_net(torch.tensor([s_q], dtype=torch.float).to(self.Q.device))) * self.alpha) + r)
+    #             # (torch.max(self.Q.forward(torch.tensor([s_q], dtype=torch.float).to(self.Q.device))) * self.alpha) + r)
+    #
+    #     # turn tensor lists into a single tensor
+    #     state_action_q_values = torch.stack(state_action_q_values)
+    #     expected_next_state_q_values = torch.stack(expected_next_state_q_values)
+    #
+    #     loss = self.Q.loss(state_action_q_values, expected_next_state_q_values).to(self.Q.device)
+    #     # print(f"loss: {loss}")
+    #     loss.backward()
+    #     self.Q.optimizer.step()
+    #     self.decrement_epsilon()
+    #
+    #     if EPISODE % UPDATE_PERIOD == 0:
+    #         print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
+    #         self.Q.load_state_dict(policy_net.state_dict())
+    #
+    #     # rewards = torch.tensor(batch.reward).to(self.Q.device)
+    #     return loss
+    #     # reward avrg, loss, position
     def learn(self):
         self.Q.optimizer.zero_grad()
 
         # TODO: priority memory
+        state_action_q_values = []
+        expected_next_state_q_values = []
+        random_sample = np.random.randint(0, replay_buf_state.head, BATCH_SIZE, np.int)
+        # print(f"random_sample: {random_sample}")
+        sample = replay_buf_state_.get(random_sample)
+        # print(f"sample: {sample}")
+        # states__t = torch.tensor([sample], dtype=torch.float).to(self.Q.device)
+        # print(f"states__t: {states__t}")
 
-        transitions = self.database.get_batch()
+
         # if self.module_number == LEADER_ID:
         #     print(f"TRANSITIONS: {transitions}")
         #     print("===================================")
@@ -362,7 +453,6 @@ class Agent:
         #     print(f"TRANSITIONS ZIP: {t.__next__()}")
         # transitions = memory.sample(BATCH_SIZE)
         # try:
-        batch = Transition(*zip(*transitions))
         # except TypeError:
         #     pass
         # print(f"BATCH STATE: {[*batch.state]}")
@@ -370,7 +460,7 @@ class Agent:
         # batch = Transition(*transitions)
 
         # states_t = torch.tensor([*batch.state], dtype=torch.float).to(self.Q.device)
-        states__t = torch.tensor([*batch.next_state], dtype=torch.float).to(self.Q.device)
+        states__t = torch.tensor(sample, dtype=torch.float).to(self.Q.device)
         # print(f"states_t: {states_t}")
         # print(f"zip(state_t, batch.action): {zip(states_t, batch.action).__init__()}")
         # exit()
@@ -388,7 +478,10 @@ class Agent:
         state_action_q_values = []
         # get q value for state
         # for s_t, a in zip(states_t, batch.action):
-        for s_t, a in zip(batch.state, batch.action):
+        batch_sates = replay_buf_state.get(random_sample)
+        batch_action = replay_buf_action.get(random_sample)
+        batch_reward = replay_buf_reward.get(random_sample)
+        for s_t, a in zip(batch_sates, batch_action):
             # if LEADER_ID == self.module_number:
             #     print(f"s_t: {s_t} ===================== a: {a}")
             #     state_action_q_values.append(torch.gather(
@@ -407,8 +500,8 @@ class Agent:
         expected_next_state_q_values = []
         #  get q value for state_
         for s_q_id, s_q in enumerate(states__t):
-            if batch.reward[s_q_id] is None:
-                r = batch.reward[s_q_id]
+            if batch_reward[s_q_id] is None:
+                r = batch_reward[s_q_id]
             else:
                 r = 0
             expected_next_state_q_values.append(
@@ -432,6 +525,100 @@ class Agent:
         # rewards = torch.tensor(batch.reward).to(self.Q.device)
         return loss
         # reward avrg, loss, position
+
+
+        #
+        # for i in range(BATCH_SIZE):
+        #     random_sample = np.random.randint(0, replay_buf_state.head, BATCH_SIZE, np.int)
+        #     print(f"random_sample: {random_sample}")
+        #     sample = replay_buf_state_.get(random_sample)
+        #     print(f"sample: {sample}")
+        #     states__t = torch.tensor([sample], dtype=torch.float).to(self.Q.device)
+        #     print(f"states__t: {states__t}")
+        # # fetch a batch
+        #     # index = np.random.choice(replay_buf_state.return_buffer_len - 1, BATCH_SIZE)
+        #     index = random.randint(0, replay_buf_state.return_buffer_len-1)
+        #     # print(f"index: {index}")
+        #     # print(f"states__t: {replay_buf_state_.get(index)}")
+        #     states__t = torch.tensor([replay_buf_state_.get(index)], dtype=torch.float).to(self.Q.device)
+        #     exit(22)
+        #
+        # # transitions = self.database.get_batch()
+        # # if self.module_number == LEADER_ID:
+        # #     print(f"TRANSITIONS: {transitions}")
+        # #     print("===================================")
+        # #     # print(f"TRANSION CAST: {Transition(*transitions)}")
+        # #     t = zip(zip(*transitions))
+        # #     print(f"TRANSITIONS ZIP: {t.__next__()}")
+        # # transitions = memory.sample(BATCH_SIZE)
+        # # try:
+        # # batch = Transition(*zip(*transitions))
+        # # except TypeError:
+        # #     pass
+        # # print(f"BATCH STATE: {[*batch.state]}")
+        # # exit(12)
+        # # batch = Transition(*transitions)
+        #
+        # # states_t = torch.tensor([*batch.state], dtype=torch.float).to(self.Q.device)
+        # # states__t = torch.tensor([*batch.next_state], dtype=torch.float).to(self.Q.device)
+        # # print(f"states_t: {states_t}")
+        # # print(f"zip(state_t, batch.action): {zip(states_t, batch.action).__init__()}")
+        # # exit()
+        # # if LEADER_ID == self.module_number:
+        # #     # print(f"states_t: {states_t}")
+        # #     print(f"states_t: {batch.state}")
+        # #     print("===========================================")
+        # #     print(f"states__t: {states__t}")
+        # #     print("===========================================")
+        # #     print(f"actions: {batch.action}")
+        # #     print("===========================================")
+        # #     print(f"actions: {batch.reward}")
+        # #     print("===========================================")
+        #
+        #     # get q value for state
+        #     # for s_t, a in zip(states_t, batch.action):
+        #     for s_t, a in zip(replay_buf_state.get(index), replay_buf_action.get(index)):
+        #         # if LEADER_ID == self.module_number:
+        #         #     print(f"s_t: {s_t} ===================== a: {a}")
+        #         #     state_action_q_values.append(torch.gather(
+        #         #         # policy_net(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+        #         #         # self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+        #         #         self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)),
+        #         #         0, torch.tensor(a, dtype=torch.int64).to(self.Q.device)))
+        #         #
+        #         # exit()
+        #         state_action_q_values.append(torch.gather(
+        #             # policy_net(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+        #             # self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)), 0, a))
+        #             self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)),
+        #             0, torch.tensor(a, dtype=torch.int64).to(self.Q.device)))
+        #
+        #     #  get q value for state_
+        #     for s_q_id, s_q in enumerate(states__t):
+        #         r = replay_buf_reward.get(index)
+        #         print(f"policy net error: {s_q}")
+        #         expected_next_state_q_values.append(
+        #             (torch.max(policy_net(torch.tensor(s_q, dtype=torch.float).to(self.Q.device))) * self.alpha) + r)
+        #             # (torch.max(policy_net(torch.tensor([s_q], dtype=torch.float).to(self.Q.device))) * self.alpha) + r)
+        #         # (torch.max(self.Q.forward(torch.tensor([s_q], dtype=torch.float).to(self.Q.device))) * self.alpha) + r)
+        #
+        # # turn tensor lists into a single tensor
+        # state_action_q_values = torch.stack(state_action_q_values)
+        # expected_next_state_q_values = torch.stack(expected_next_state_q_values)
+        #
+        # loss = self.Q.loss(state_action_q_values, expected_next_state_q_values).to(self.Q.device)
+        # # print(f"loss: {loss}")
+        # loss.backward()
+        # self.Q.optimizer.step()
+        # self.decrement_epsilon()
+        #
+        # if EPISODE % UPDATE_PERIOD == 0:
+        #     print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
+        #     self.Q.load_state_dict(policy_net.state_dict())
+        #
+        # # rewards = torch.tensor(batch.reward).to(self.Q.device)
+        # return loss
+        # # reward avrg, loss, position
 
 # robot module instance
 #TODO: reset the GPS per episode
@@ -481,7 +668,7 @@ class Module:
         self.calc_reward()
 
         self.global_states = [1]*NUM_MODULES
-        self.prev_global_states = [1]*NUM_MODULES
+        # self.prev_global_states = [1]*NUM_MODULES
         """
         states:  0 - min
                  1 - zero
@@ -499,9 +686,11 @@ class Module:
         self.prev_actions = self.current_action
 
         self.state_changer()
-        self.notify_of_a_state(self.current_state)
+        # self.notify_of_a_state(self.current_state)
+        self.notify_of_a_state(self.current_action)
 
-    # sends the leader-decided values to all of the modules
+    # notify other modules of the chosen action
+    # TODO: fix phrasing form ___of_a_state to ___of_an_action, it's confusing when taking mean and so on
     def notify_of_a_state(self, state):
         # setting system states
         message = struct.pack("i", self.bot_id)
@@ -544,6 +733,7 @@ class Module:
     def set_default_action(self):
         self.motor.setPosition(0)
 
+    # no action is taken, module just passes
     def action_neutral(self):
         # TODO: REMOVE IF HAS ODD RESULTS
         # experiment to see if making neutral not do anything will be beneficial or not
@@ -552,22 +742,14 @@ class Module:
         # self.motor.setPosition(0)
         pass
 
+    # calculates reward based on the travel distance from old position to the new, calculates hypotenuse of two points
     def calc_reward(self):
-        x = (self.old_pos[0] - self.new_pos[0])**2
-        y = (self.old_pos[2] - self.new_pos[2])**2
-        self.reward = (x + y)**(1/2)
+        self.reward = math.hypot(self.old_pos[0]-self.new_pos[0], self.old_pos[2]-self.new_pos[2])
 
-        #
-        # a = np.array((self.old_pos[0], self.old_pos[2]))
-        # b = np.array((self.new_pos[0], self.new_pos[2]))
-        # delta = b - a
-        # # print(f"delta: {delta}   a: {self.old_pos}  b: {self.new_pos}")
-        # if delta[0] < 0 and delta[1] >= 0:
-        #     delta[0] = 0
-        # elif delta[0] >= 0 and delta[1] < 0:
-        #     delta[1] = 0
-        # self.reward = abs(np.sum(abs(delta)))
-
+    # changes the state of the module based on the action.
+    #   if the current state is down (0) and action is 0 (up) the state will be neutral (1)
+    #   same logic backwards, is state is neutral (1) and action is 1 (down), the state will be down(0)
+    #   if state is already up/down and we get action up/down module stays in current position
     def state_changer(self):
         self.prev_state = self.current_state
 
@@ -619,44 +801,24 @@ class Module:
             if self.reward != self.reward or self.reward is None:
                 pass
             else:
-                # print(self.reward)
 
-                # print(f"[*] {self.bot_id} reward for nn: {self.reward}")
+                replay_buf_reward.put(np.array(self.reward))
+                replay_buf_state.put(np.array(self.current_state))
+                replay_buf_state_.put(np.array(self.prev_state))
+                try:
+                    replay_buf_action.put(np.array(sum(self.global_states)/NUM_MODULES))
+                except TypeError:
+                    print(f"global_states: {self.global_states}  ({type(self.global_states)})")
+                    print(f"sum(gs): {sum(self.global_states)} ({type(sum(self.global_states))})")
+                    s = sum(self.global_states)
+                    replay_buf_action.put(np.array(s.cpu()))
+                    # print(f"np.array(s(sg)): {np.array(sum(self.global_states)/NUM_MODULES)} ({type(np.array(sum(self.global_states)/NUM_MODULES))})")
+                    # exit(22)
+                # for MFRL memory
+                #     state will keep track of this
+                replay_buf_state.return_buffer_len = \
+                    min(MEMORY_CAPACITY, replay_buf_state.return_buffer_len + self.batch_ticks)
 
-                state = self.global_states  # before taking new action
-                # print(f"[*] {self.bot_id} state for nn: {state}")
-                # state_ = self.current_module_state  # after taking new action
-                state_ = self.prev_global_states  # after taking new action
-                # print(f"[*] {self.bot_id} state_ for nn: {state_}")
-
-                #  mean action
-                states = sum(state) / NUM_MODULES
-                states_ = sum(state_) / NUM_MODULES
-
-                # actions = self.global_actions[self.bot_id-1]
-                actions = self.current_action
-                # rewards = self.reward
-
-                # states = torch.tensor([states], dtype=torch.float).to(self.agent.Q.device)
-                # states = torch.tensor([states], dtype=torch.float)
-                states = [states]
-                # actions = torch.tensor(actions).to(self.agent.Q.device)
-                # actions = torch.tensor(actions)
-                actions = actions
-                # print(f"reward: {self.reward}")
-                # print(f"{self.reward} {type(self.reward)}")
-
-                # rewards = torch.tensor(self.reward, dtype=torch.float).to(self.agent.Q.device)
-                # rewards = torch.tensor(self.reward, dtype=torch.float)
-                rewards = self.reward
-                # states_ = torch.tensor([states_], dtype=torch.float).to(self.agent.Q.device)
-                # states_ = torch.tensor([states_], dtype=torch.float)
-                states_ = [states_]
-
-                # if self.bot_id == 1:
-                #     print(f"{states}           {actions}              {states_}               {rewards}")
-                # self.database.add_data("{}\n".format(Transition(states, actions, states_, rewards)))
-                self.database.add_data("{},{},{},{}\n".format(states[0], actions, states_[0], rewards))
                 # memory.push(states, actions, states_, rewards)
                 self.episode_reward += self.reward
 
@@ -682,6 +844,7 @@ class Module:
 
                     # if len(memory) < memory.capacity:
                     if self.database.__len__() < MEMORY_CAPACITY:
+
                         self.batch_ticks = 0
                     else:
                         print(f"**[{self.bot_id}]** end of learning period")
@@ -693,9 +856,10 @@ class Module:
             # new_action = self.agent.choose_action(sum(self.leader_decided_actions)/NUM_MODULES)
             self.prev_actions = self.current_action
             self.current_action = self.agent.choose_action(sum(self.global_states)/NUM_MODULES)[0]
-            self.prev_global_states = self.global_states
+            # self.prev_global_states = self.global_states
             self.state_changer()
-            self.notify_of_a_state(self.current_state)
+            # self.notify_of_a_state(self.current_state)
+            self.notify_of_a_state(self.current_action)
 
         else:
             self.act = None
@@ -718,8 +882,10 @@ store reserve models for episodes
 
 each episode is 30 min of simulation time
 """
+
+
+# logs the information throughout the trial run, collects time_step, reward, loss, and Episode number
 def writer(name, num_of_bots, time_step, reward, loss):
-    # loss reward location(GPS)     name num_of_bots
     log_path = os.path.join(os.getcwd(), "LOGS")
     if not os.path.isdir(log_path):
         try:
@@ -752,6 +918,7 @@ def writer(name, num_of_bots, time_step, reward, loss):
         fin.write('{},{},{},{}\n'.format(time_step, reward, loss, EPISODE))
 
 
+# makes a file for the replay memory and stores replays there as to not overload the RAM
 def db_maker(bot_id):
     db_path = os.path.join(os.getcwd(), "DBs")
     if not os.path.isdir(db_path):
@@ -782,8 +949,6 @@ def db_maker(bot_id):
         filename = os.path.join(set_folder_path, filename)
 
     os.mknod(filename)
-    # with open(filename, "a") as fin:
-    #     fin.write("")
 
     return filename
 
