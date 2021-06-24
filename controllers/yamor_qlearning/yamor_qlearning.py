@@ -217,7 +217,7 @@ class Module(Supervisor):
 
     def reset(self):
         self.translation_field.setSFVec3f(self.original_translation)
-        self.rotation_field.setSFRotation(self.original_rotation)
+        # self.rotation_field.setSFRotation(self.original_rotation)
 
     def reset_rot(self):
         self.rotation_field.setSFRotation(self.original_rotation)
@@ -453,9 +453,9 @@ class Module(Supervisor):
                     if replay_buf_state.return_buffer_len < MEMORY_CAPACITY:
 
                         self.batch_ticks = 0
-                    else:
-                        print(f"**[{self.bot_id}]** end of learning period")
-                        exit(33)
+                    # else:
+                    #     print(f"**[{self.bot_id}]** end of learning period")
+                    #     exit(33)
                 else:
                     self.batch_ticks += 1
 
@@ -545,19 +545,6 @@ if __name__ == '__main__':
     import time
     start_time = time.time()
     print(f"Starting the training: {time.strftime('%H:%M:%S', time.localtime())}")
-    # print(f"{robot.getSupervisor()}")
-    # if int(robot.getName()[7]) == 1:
-    #     robot.simulationReset()
-    # node = Node(robot.getFromDef(robot.getName()))
-    # print(node.getPosition())
-
-
-
-    # exit(11)
-    # self.supervisor = Supervisor()
-    # robot = supervisor.getFromDef("MODULE_2")
-    # self.trans_field = self.robot_node.getField("translation")
-    # self.trans_field = self.robot.getField("translation")
     eps_history = []
     # filename = db_maker(int(robot.getName()[7]))
     filename = "null"
@@ -569,7 +556,8 @@ if __name__ == '__main__':
     module = Module()
     assign_ = False
     learn = True
-
+    # print(f"motor pos: {module.motor.getPosition()}")
+    # exit(3)
     i = 0
     while i < 100:
         i += 1
@@ -594,10 +582,11 @@ if __name__ == '__main__':
                     print(f"Episode: {EPISODE} -- "
                           f"{time.time() - start_time} ===== time since last episode: {time.time() - last_episode}")
                     # module.yamor.simulationReset()
-                    module.reset()
-                    last_episode = time.time()
+                    # module.motor.setPosition(0)
+                    # last_episode = time.time()
                 assign_ = True
             module.motor.setPosition(0)
+            module.reset()
         else:
             assign_ = False
         if EPISODE > MAX_EPISODE:
