@@ -1,3 +1,3 @@
 # MSR_locomotion
 
-Locomotion learning of Modular Self-Reconfigurable Robot, named Yamor, using Q-learning. We use [Webots](https://www.cyberbotics.com/#cyberbotics) for simulation.
+Locomotion learning of a Modular Self-Reconfigurable Robot (MSR), named Yamor, using Q-learning. We use [Webots](https://www.cyberbotics.com/#cyberbotics) for simulation.
