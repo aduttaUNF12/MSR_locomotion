@@ -28,7 +28,8 @@ T = 0.1
 BATCH_SIZE = 128
 MAX_EPISODE = 5000
 # MEMORY_CAPACITY = 10**10
-MEMORY_CAPACITY = 2**20
+MEMORY_CAPACITY = 2**30
+# MEMORY_CAPACITY = 2**20
 # MAX_EPISODE = 10
 UPDATE_PERIOD = 10
 EPISODE = 0
@@ -43,6 +44,8 @@ NUM_MODULES = 3
 INITIAL = [0, 0.5, 0]
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
+
+BASE_LOGS_FOLDER = None
 
 
 # FROM MFRL paper
@@ -137,6 +140,7 @@ class Agent:
         self.eps_dec = eps_dec
         self.eps_min = eps_min
         # self.database = NNDataset(database)
+        self.updated = False
 
         self.action_space = [i for i in range(self.n_actions)]
 
@@ -202,10 +206,16 @@ class Agent:
         self.Q.optimizer.step()
         self.decrement_epsilon()
 
-        if EPISODE % UPDATE_PERIOD == 0:
+        if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
             self.Q.load_state_dict(policy_net.state_dict())
+            # global BASE_LOGS_FOLDER
+            if BASE_LOGS_FOLDER is not None:
+                torch.save(module.agent.Q.state_dict(), os.path.join(BASE_LOGS_FOLDER, "agent.pt"))
 
+            self.updated = True
+        elif EPISODE % UPDATE_PERIOD != 0:
+            self.updated = False
         # rewards = torch.tensor(batch.reward).to(self.Q.device)
         return loss
 
@@ -214,52 +224,26 @@ class Agent:
 # class Module(Supervisor):
 class Module(Supervisor):
     # def __init__(self, robot_, bot_id, database, agent_=None):
-
-    def reset(self):
-        self.translation_field.setSFVec3f(self.original_translation)
-        # self.rotation_field.setSFRotation(self.original_rotation)
-
-    def reset_rot(self):
-        self.rotation_field.setSFRotation(self.original_rotation)
-
     def __init__(self):
         Supervisor.__init__(self)
         #  webots section
         self.bot_id = int(self.getName()[7])
-        self.yamor = None
-        self.original_translation = []
-        self.original_rotation: []
-        for i in range(NUM_MODULES+1):
-            if self.bot_id == i:
-                self.yamor = self.getFromDef("MODULE_"+str(self.bot_id))
-                self.translation_field = self.yamor.getField("translation")
-                self.rotation_field = self.yamor.getField("rotation")
-                self.original_translation = self.translation_field.getSFVec3f()
-                self.original_rotation = self.rotation_field.getSFRotation()
-
         self.timeStep = int(self.getBasicTimeStep())
         self.prev_episode = EPISODE
         self.episode_reward = 0
-        # self.name = name
-        # self.bot_id = bot_id
         self.self_message = bytes
 
-        # self.gps = self.robot.getDevice("gps")
         self.gps = self.getDevice("gps")
         self.gps.resolution = 0
         self.gps.enable(self.timeStep)
 
-        # self.emitter = self.robot.getDevice("emitter")
         self.emitter = self.getDevice("emitter")
-        # self.receiver = self.robot.getDevice("receiver")
         self.receiver = self.getDevice("receiver")
         self.receiver.enable(self.timeStep)
 
-        # self.motor = self.robot.getDevice("motor")
         self.motor = self.getDevice("motor")
 
         # making all modules have NN
-        # self.agent = agent_
         self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, "null", alpha=ALPHA,
                            epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON)
         self.receiver.setChannel(0)
@@ -280,7 +264,6 @@ class Module(Supervisor):
         self.calc_reward()
 
         self.global_states = [1]*NUM_MODULES
-        # self.prev_global_states = [1]*NUM_MODULES
         """
         states:  0 - min
                  1 - zero
@@ -298,7 +281,6 @@ class Module(Supervisor):
         self.prev_actions = self.current_action
 
         self.state_changer()
-        # self.notify_of_a_state(self.current_state)
         self.notify_of_a_state(self.current_action)
 
     # notify other modules of the chosen action
@@ -309,11 +291,9 @@ class Module(Supervisor):
         message += struct.pack("i", state)
 
         self.global_states[self.bot_id-1] = state
-        # print(f"[*] {self.bot_id} - state: {state}")
         ret = self.emitter.send(message)
         if ret == 1:
             pass
-            # print(f"[*] {self.bot_id} - acts were sent")
         elif ret == 0:
             print(f"[*] {self.bot_id} - acts were not sent")
             exit(3)
@@ -430,6 +410,9 @@ class Module(Supervisor):
                 if EPISODE > self.prev_episode:
                     # self.simulationReset()
                     if self.bot_id == LEADER_ID:
+                        print(f"Buffer len: {replay_buf_state.return_buffer_len} "
+                              f"{(replay_buf_state.return_buffer_len/MEMORY_CAPACITY)*100}%"
+                              f" Loss: {self.loss}")
                         # print(f"Reward: {self.episode_reward}")
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
                     self.episode_reward = 0
@@ -439,33 +422,15 @@ class Module(Supervisor):
 
                     self.loss = self.agent.learn()
 
+                    self.batch_ticks = 0
 
-                    # print(loss.item(), self.current_action, torch.mean(rewards_).item(), self.tick)
-                    # TODO: add logging here
-
-                    # if self.tick > MAX_EPISODES:
-                    #     exit()
-                    # else:
-                    #     self.tick += 1
-
-                    # if len(memory) < memory.capacity:
-                    # if self.database.__len__() < MEMORY_CAPACITY:
-                    if replay_buf_state.return_buffer_len < MEMORY_CAPACITY:
-
-                        self.batch_ticks = 0
-                    # else:
-                    #     print(f"**[{self.bot_id}]** end of learning period")
-                    #     exit(33)
                 else:
                     self.batch_ticks += 1
 
             # TODO: change to neighbor modules later on
-            # new_action = self.agent.choose_action(sum(self.leader_decided_actions)/NUM_MODULES)
             self.prev_actions = self.current_action
             self.current_action = self.agent.choose_action(sum(self.global_states)/NUM_MODULES)[0]
-            # self.prev_global_states = self.global_states
             self.state_changer()
-            # self.notify_of_a_state(self.current_state)
             self.notify_of_a_state(self.current_action)
 
         else:
@@ -477,29 +442,33 @@ class Module(Supervisor):
 
 # logs the information throughout the trial run, collects time_step, reward, loss, and Episode number
 def writer(name, num_of_bots, time_step, reward, loss):
-    log_path = os.path.join(os.getcwd(), "LOGS")
-    if not os.path.isdir(log_path):
-        try:
-            os.mkdir(log_path)
-        except FileExistsError:
-            pass
+    global BASE_LOGS_FOLDER
 
-    set_folder_path = os.path.join(log_path, "{}_MODULES".format(num_of_bots))
-    if not os.path.isdir(set_folder_path):
-        try:
-            os.mkdir(set_folder_path)
-        except FileExistsError:
-            pass
+    if BASE_LOGS_FOLDER is None:
+        log_path = os.path.join(os.getcwd(), "LOGS")
+        if not os.path.isdir(log_path):
+            try:
+                os.mkdir(log_path)
+            except FileExistsError:
+                pass
 
-    current_run = os.path.join(set_folder_path, "{}_RUN".format(DATE_TODAY))
-    if not os.path.isdir(current_run):
-        try:
-            os.mkdir(current_run)
-        except FileExistsError:
-            pass
+        set_folder_path = os.path.join(log_path, "{}_MODULES".format(num_of_bots))
+        if not os.path.isdir(set_folder_path):
+            try:
+                os.mkdir(set_folder_path)
+            except FileExistsError:
+                pass
+
+        current_run = os.path.join(set_folder_path, "{}_RUN".format(DATE_TODAY))
+        if not os.path.isdir(current_run):
+            try:
+                os.mkdir(current_run)
+            except FileExistsError:
+                pass
+        BASE_LOGS_FOLDER = current_run
 
     file_name = "{}_MODULES_{}.txt".format(num_of_bots, name)
-    file_path = os.path.join(current_run, file_name)
+    file_path = os.path.join(BASE_LOGS_FOLDER, file_name)
     with open(file_path, "a") as fin:
         fin.write('{},{},{},{}\n'.format(time_step, reward, loss, EPISODE))
 
@@ -540,31 +509,21 @@ def db_maker(bot_id):
 
 
 if __name__ == '__main__':
-    # robot = Supervisor()
-
     import time
     start_time = time.time()
     print(f"Starting the training: {time.strftime('%H:%M:%S', time.localtime())}")
     eps_history = []
-    # filename = db_maker(int(robot.getName()[7]))
     filename = "null"
-    # every module has NN
-    # module = Module(robot, int(robot.getName()[7]), filename, agent_=Agent(int(robot.getName()[7]), NUM_MODULES,  3, 0.001,
-    #                                                                        filename,
-    #                                                                        alpha=ALPHA, epsilon=EPSILON,
-    #                                                                        eps_dec=0.001, eps_min=MIN_EPSILON))
     module = Module()
     assign_ = False
     learn = True
-    # print(f"motor pos: {module.motor.getPosition()}")
-    # exit(3)
     i = 0
     while i < 100:
         i += 1
         time.sleep(0.05)
     print(f"Finished buffer period in: {time.time()-start_time} ===== {time.strftime('%H:%M:%S', time.localtime())}")
+
     last_episode = time.time()
-    # while module.robot.step(module.timeStep) != -1:
     while module.step(module.timeStep) != -1:
         i = 0
         while i < 1000:
@@ -574,25 +533,21 @@ if __name__ == '__main__':
         module.t += module.timeStep / 1000.0
         TOTAL_ELAPSED_TIME += module.timeStep / 1000.0
         if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
-            # robot.simulationReset()
             if not assign_:
                 EPISODE += 1
 
                 if module.bot_id == LEADER_ID:
                     print(f"Episode: {EPISODE} -- "
                           f"{time.time() - start_time} ===== time since last episode: {time.time() - last_episode}")
-                    # module.yamor.simulationReset()
-                    # module.motor.setPosition(0)
-                    # last_episode = time.time()
+                    last_episode = time.time()
+
                 assign_ = True
+                module.simulationReset()
             module.motor.setPosition(0)
-            module.reset()
         else:
             assign_ = False
         if EPISODE > MAX_EPISODE:
             end = time.time()
-            # if TOTAL_ELAPSED_TIME > 600.0:
-            # if TOTAL_ELAPSED_TIME > 36.0:
             print(f"Runtime: {end - start_time}")
             print("LOGGING OFF")
             exit()
