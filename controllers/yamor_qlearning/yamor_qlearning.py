@@ -543,7 +543,8 @@ if __name__ == '__main__':
 
                 assign_ = True
                 module.simulationReset()
-            module.motor.setPosition(0)
+                self.old_pos = self.gps.getValues() # AD's change -- position resets to the initial position. 
+            #module.motor.setPosition(0)
         else:
             assign_ = False
         if EPISODE > MAX_EPISODE:
