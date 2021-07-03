@@ -1,7 +1,7 @@
 import math
 from datetime import date
 
-from controller import Robot, Supervisor, Node, Field
+from controller import Supervisor
 import random
 import struct
 import sys
@@ -11,9 +11,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import csv
-import matplotlib.pyplot as plt
 from collections import namedtuple
 
 
@@ -127,11 +124,11 @@ class LinearDQN(nn.Module):
 policy_net = LinearDQN(NUM_MODULES, 0.001, 3)
 # agent who controls NN, in this case the main module (module 1)
 
-# TODO: make a decorator for data logging
+
 class Agent:
-    def __init__(self, module_number, number_of_modules, n_actions, lr, database, alpha=0.99,
+    def __init__(self, module_number, number_of_modules, n_actions, lr, alpha=0.99,
                  epsilon=1, eps_dec=1e-5, eps_min=0.01):
-        self.module_number = module_number
+        self.module_number = module_number   # only used for logging
         self.number_of_modules = number_of_modules
         self.n_actions = n_actions
         self.lr = lr
@@ -139,7 +136,6 @@ class Agent:
         self.epsilon = epsilon
         self.eps_dec = eps_dec
         self.eps_min = eps_min
-        # self.database = NNDataset(database)
         self.updated = False
 
         self.action_space = [i for i in range(self.n_actions)]
@@ -152,7 +148,6 @@ class Agent:
     # Greedy action selection
     def choose_action(self, module_actions):
         if random.random() < (1 - self.epsilon):
-
             state = torch.tensor([module_actions], dtype=torch.float).to(self.Q.device)
             action = self.Q.forward(state)
             return [np.argmax(action.to('cpu').detach().numpy())]
@@ -171,21 +166,29 @@ class Agent:
         self.Q.optimizer.zero_grad()
 
         # TODO: priority memory
+        # pull a random BATCH of data from replay buffer
         random_sample = np.random.randint(0, replay_buf_state.head, BATCH_SIZE, np.int)
+        # a matrix of sample locations in a replay buffer which are than being referenced once pulling needed data types
         sample = replay_buf_state_.get(random_sample)
+        # batch of past states_
         states__t = torch.tensor(sample, dtype=torch.float).to(self.Q.device)
 
         state_action_q_values = []
-        batch_sates = replay_buf_state.get(random_sample)
-        batch_action = replay_buf_action.get(random_sample)
-        batch_reward = replay_buf_reward.get(random_sample)
-        for s_t, a in zip(batch_sates, batch_action):
-
-            state_action_q_values.append(torch.gather(
-                self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device)),
-                0, torch.tensor(a, dtype=torch.int64).to(self.Q.device)))
-
         expected_next_state_q_values = []
+
+        # batch of states
+        batch_sates = replay_buf_state.get(random_sample)
+        # batch of actions
+        batch_action = replay_buf_action.get(random_sample)
+        # batch of rewards
+        batch_reward = replay_buf_reward.get(random_sample)
+
+        for s_t, a in zip(batch_sates, batch_action):
+            s_t_tensor = self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device))
+            a_tensor = torch.tensor(a, dtype=torch.int64).to(self.Q.device)
+
+            state_action_q_values.append(torch.gather(s_t_tensor, 0, a_tensor))
+
         #  get q value for state_
         for s_q_id, s_q in enumerate(states__t):
             if batch_reward[s_q_id] is None:
@@ -209,21 +212,19 @@ class Agent:
         if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
             self.Q.load_state_dict(policy_net.state_dict())
-            # global BASE_LOGS_FOLDER
+
             if BASE_LOGS_FOLDER is not None:
                 torch.save(module.agent.Q.state_dict(), os.path.join(BASE_LOGS_FOLDER, "agent.pt"))
 
             self.updated = True
         elif EPISODE % UPDATE_PERIOD != 0:
             self.updated = False
-        # rewards = torch.tensor(batch.reward).to(self.Q.device)
+
         return loss
 
+
 # robot module instance
-#TODO: reset the GPS per episode
-# class Module(Supervisor):
 class Module(Supervisor):
-    # def __init__(self, robot_, bot_id, database, agent_=None):
     def __init__(self):
         Supervisor.__init__(self)
         #  webots section
@@ -244,7 +245,7 @@ class Module(Supervisor):
         self.motor = self.getDevice("motor")
 
         # making all modules have NN
-        self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, "null", alpha=ALPHA,
+        self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, alpha=ALPHA,
                            epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON)
         self.receiver.setChannel(0)
         self.emitter.setChannel(0)
@@ -254,7 +255,7 @@ class Module(Supervisor):
             Action("Down", self.action_down),
             Action("Neutral", self.action_neutral)
         ]
-        self.action_reset = False
+
         self.old_pos = self.gps.getValues()
         self.new_pos = self.old_pos
         self.t = 0
@@ -263,7 +264,8 @@ class Module(Supervisor):
         self.loss = None
         self.calc_reward()
 
-        self.global_states = [1]*NUM_MODULES
+        self.global_actions = [1]*NUM_MODULES
+        self.mean_action = 0
         """
         states:  0 - min
                  1 - zero
@@ -277,20 +279,18 @@ class Module(Supervisor):
 
         # getting leader to decide initial actions
         self.current_action = np.random.choice([i for i in range(3)], 1)[0]
-        print(f"[*] {self.bot_id} - initial action: {self.current_action}")
+        # print(f"[*] {self.bot_id} - initial action: {self.current_action}")
         self.prev_actions = self.current_action
 
         self.state_changer()
-        self.notify_of_a_state(self.current_action)
+        self.notify_of_an_action(self.current_action)
 
     # notify other modules of the chosen action
-    # TODO: fix phrasing form ___of_a_state to ___of_an_action, it's confusing when taking mean and so on
-    def notify_of_a_state(self, state):
-        # setting system states
+    def notify_of_an_action(self, state):
         message = struct.pack("i", self.bot_id)
         message += struct.pack("i", state)
 
-        self.global_states[self.bot_id-1] = state
+        self.global_actions[self.bot_id-1] = state
         ret = self.emitter.send(message)
         if ret == 1:
             pass
@@ -304,26 +304,22 @@ class Module(Supervisor):
         self.self_message = message
 
     # gets actions which were sent by the leader
-    def get_other_module_states(self):
+    def get_other_module_actions(self):
         if self.receiver.getQueueLength() > 0:
             while self.receiver.getQueueLength() > 0:
                 message = self.receiver.getData()
                 data = struct.unpack("i" + "i", message)
-                self.global_states[data[0]-1] = data[1]
+                self.global_actions[data[0]-1] = data[1]
                 self.receiver.nextPacket()
         else:
             print("Error: no packets in receiver queue.")
             return 2
 
-    # old action break down
     def action_up(self):
         self.motor.setPosition(1.57)
 
     def action_down(self):
         self.motor.setPosition(-1.57)
-
-    def set_default_action(self):
-        self.motor.setPosition(0)
 
     # no action is taken, module just passes
     def action_neutral(self):
@@ -360,83 +356,110 @@ class Module(Supervisor):
             print(f"[{self.bot_id}]  Error with state_changer !!!!!!!!!!", file=sys.stderr)
             exit(2)
 
+    # Loops through NUM_MODULES+1 (since there is no module 0), sums actions of all modules except for current
+    # divides by the total number of modules
+    def calc_mean_action(self):
+        a = 0
+        for m in range(NUM_MODULES + 1):
+            if m != self.bot_id:
+                try:
+                    a += self.global_actions[m]
+                except IndexError:
+                    pass
+        self.mean_action = a / NUM_MODULES
+        self.mean_action_rounder()
+
+    # Takes mean_action and rounds it down
+    def mean_action_rounder(self):
+        dec, n = math.modf(float(self.mean_action))
+        if dec < 0.5:
+            n = n
+        else:
+            n = n + 1
+        self.mean_action = n
+        # if type(self.mean_action) is float:
+
     def learn(self):
+        # If current action is None
         if self.act is None:
-            ret = self.get_other_module_states()
+            # get actions which were send by other modules, if ret is 2 that means that not all modules sent their
+            # actions yet, so loop while you wait for them to come
+            ret = self.get_other_module_actions()
             if ret == 2:
                 return
-            # print(f"[*] {self.bot_id} global_actions: {self.global_actions}")
-
-            # action_index = self.global_actions[self.bot_id - 1]
-            # print(self.current_action)
+            # select an action corresponding to the current_action number
             self.act = self.actions[self.current_action]
-            # print(f"{self.bot_id} {self.prev_global_states}  {self.global_states}")
-            # exit(33)
-            # self.current_module_state = self.global_actions
+            self.calc_mean_action()
 
         elif self.t + (self.timeStep / 1000.0) < T:
+            # carry out a function
             self.act.func()
 
         elif self.t < T:
+            # get new position
             self.new_pos = self.gps.getValues()
+            # calculate the reward
             self.calc_reward()
-
-
-
+            # if reward is missing, skip. There were errors when Webots would not properly assign GPS coordinates
+            # causing reward to be none
             if self.reward != self.reward or self.reward is None:
                 pass
             else:
-
+                # pass values to corresponding replay buffers
                 replay_buf_reward.put(np.array(self.reward))
                 replay_buf_state.put(np.array(self.current_state))
                 replay_buf_state_.put(np.array(self.prev_state))
                 try:
-                    replay_buf_action.put(np.array(sum(self.global_states)/NUM_MODULES))
+                    replay_buf_action.put(np.array(self.mean_action))
                 except TypeError:
-                    print(f"global_states: {self.global_states}  ({type(self.global_states)})")
-                    print(f"sum(gs): {sum(self.global_states)} ({type(sum(self.global_states))})")
-                    s = sum(self.global_states)
+                    # There were errors with passing mean action, this is a temporary exception, will be removed
+                    # once no errors occur after a few trials
+                    print(f"global_actions: {self.global_actions}  ({type(self.global_actions)})")
+                    print(f"sum(gs): {sum(self.global_actions)} ({type(sum(self.global_actions))})")
+                    s = sum(self.global_actions)
                     replay_buf_action.put(np.array(s.cpu()))
-                    # print(f"np.array(s(sg)): {np.array(sum(self.global_states)/NUM_MODULES)} ({type(np.array(sum(self.global_states)/NUM_MODULES))})")
-                    # exit(22)
+
+                if self.bot_id == LEADER_ID:
+                    logger(reward=self.reward, cur_state=self.current_state,
+                           pre_state=self.prev_state, mean_action=self.mean_action)
+
                 # for MFRL memory
                 #     state will keep track of this
                 replay_buf_state.return_buffer_len = \
                     min(MEMORY_CAPACITY, replay_buf_state.return_buffer_len + self.batch_ticks)
-
-                # memory.push(states, actions, states_, rewards)
+                # add reward to current episode_reward
                 self.episode_reward += self.reward
-
+                # If Episode changed
                 if EPISODE > self.prev_episode:
-                    # self.simulationReset()
                     if self.bot_id == LEADER_ID:
-                        print(f"Buffer len: {replay_buf_state.return_buffer_len} "
-                              f"{(replay_buf_state.return_buffer_len/MEMORY_CAPACITY)*100}%"
-                              f" Loss: {self.loss}")
-                        # print(f"Reward: {self.episode_reward}")
+                        # print(f"Buffer len: {replay_buf_state.return_buffer_len} "
+                        #       f"{(replay_buf_state.return_buffer_len/MEMORY_CAPACITY)*100}%"
+                        #       f" Loss: {self.loss}")
+                        # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
                     self.episode_reward = 0
                     self.prev_episode = EPISODE
-
+                # batch is full
                 if self.batch_ticks > BATCH_SIZE:
-
+                    # run the NN and collect loss
                     self.loss = self.agent.learn()
-
                     self.batch_ticks = 0
-
                 else:
                     self.batch_ticks += 1
 
             # TODO: change to neighbor modules later on
+            # set previous action option to the new one
             self.prev_actions = self.current_action
-            self.current_action = self.agent.choose_action(sum(self.global_states)/NUM_MODULES)[0]
+            # get current action by passing mean action to the NN
+            self.current_action = self.agent.choose_action(self.mean_action)[0]
+            # run the action and change the state
             self.state_changer()
-            self.notify_of_a_state(self.current_action)
+            # notify others of current action
+            self.notify_of_an_action(self.current_action)
 
         else:
             self.act = None
             self.old_pos = self.gps.getValues()
-
             self.t = 0
 
 
@@ -473,40 +496,11 @@ def writer(name, num_of_bots, time_step, reward, loss):
         fin.write('{},{},{},{}\n'.format(time_step, reward, loss, EPISODE))
 
 
-# makes a file for the replay memory and stores replays there as to not overload the RAM
-def db_maker(bot_id):
-    db_path = os.path.join(os.getcwd(), "DBs")
-    if not os.path.isdir(db_path):
-        try:
-            os.mkdir(db_path)
-        except FileExistsError:
-            pass
-
-    set_folder_path = os.path.join(db_path, "{}_MODULES".format(NUM_MODULES))
-    if not os.path.isdir(set_folder_path):
-        try:
-            os.mkdir(set_folder_path)
-        except FileExistsError:
-            pass
-
-    files_in_dir = os.listdir(set_folder_path)
-    # format: db_NUM_MODULES_number.txt
-    if files_in_dir:
-        last = 0
-        # only valid for first 9 databases
-        for f in files_in_dir:
-            if last < int(f[-5]) and int(f[5]) == bot_id:
-                last = int(f[-5])
-        filename = "db_{}_{}_{}.txt".format(NUM_MODULES, bot_id, last+1)
-        filename = os.path.join(set_folder_path, filename)
-    else:
-        filename = "db_{}_{}_0.txt".format(NUM_MODULES, bot_id)
-        filename = os.path.join(set_folder_path, filename)
-
-    os.mknod(filename)
-
-    return filename
-
+def logger(**kwargs):
+    with open("log.txt", "a") as fin:
+        for kwarg in kwargs:
+            fin.write("{}: {}\n".format(kwarg, kwargs[kwarg]))
+        fin.write("=================== ENTRY END ========================\n")
 
 if __name__ == '__main__':
     import time
@@ -538,16 +532,23 @@ if __name__ == '__main__':
 
                 if module.bot_id == LEADER_ID:
                     print(f"Episode: {EPISODE} -- "
-                          f"{time.time() - start_time} ===== time since last episode: {time.time() - last_episode}")
-                    last_episode = time.time()
+                          f"{time.time() - start_time} ===== time since last episode: {time.time() - last_episode} ====== Episode reward: {module.episode_reward}")
+                    # last_episode = time.time()
 
                 assign_ = True
                 module.simulationReset()
-                self.old_pos = self.gps.getValues() # AD's change -- position resets to the initial position. 
-            #module.motor.setPosition(0)
+                module.old_pos = module.gps.getValues()
+                if module.bot_id == LEADER_ID:
+                    print(f"========================== M1 old_pos: {module.old_pos}")
+                    with open("M1_Rev_Track.txt", "a") as fin:
+                        fin.write("{},{},{}\n".format(time.time() - start_time,
+                                                      module.episode_reward, module.old_pos[0]))
+                last_episode = time.time()
         else:
+            # assign_ is a temp needed to prevent infinite loop on the first Episode
             assign_ = False
         if EPISODE > MAX_EPISODE:
+        # if EPISODE > 150:
             end = time.time()
             print(f"Runtime: {end - start_time}")
             print("LOGGING OFF")
