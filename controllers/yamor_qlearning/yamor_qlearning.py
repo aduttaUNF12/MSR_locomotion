@@ -14,7 +14,7 @@ import torch.optim as optim
 from collections import namedtuple
 
 
-__version__ = '06.21.21'
+__version__ = '07.05.21'
 
 
 # Constants
@@ -186,7 +186,6 @@ class Agent:
         for s_t, a in zip(batch_sates, batch_action):
             s_t_tensor = self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device))
             a_tensor = torch.tensor(a, dtype=torch.int64).to(self.Q.device)
-
             state_action_q_values.append(torch.gather(s_t_tensor, 0, a_tensor))
 
         #  get q value for state_
@@ -333,6 +332,7 @@ class Module(Supervisor):
     # calculates reward based on the travel distance from old position to the new, calculates hypotenuse of two points
     def calc_reward(self):
         self.reward = math.hypot(self.old_pos[0]-self.new_pos[0], self.old_pos[2]-self.new_pos[2])
+        # logger(bot_id=self.bot_id, reward=self.reward)
 
     # changes the state of the module based on the action.
     #   if the current state is down (0) and action is 0 (up) the state will be neutral (1)
@@ -366,7 +366,9 @@ class Module(Supervisor):
                     a += self.global_actions[m]
                 except IndexError:
                     pass
-        self.mean_action = a / NUM_MODULES
+        # NUM_MODULE - 1 since we are taking a mean of all except current modules
+        self.mean_action = a / (NUM_MODULES - 1)
+        # logger(mean_action=self.mean_action, a=a)
         self.mean_action_rounder()
 
     # Takes mean_action and rounds it down
@@ -377,7 +379,6 @@ class Module(Supervisor):
         else:
             n = n + 1
         self.mean_action = n
-        # if type(self.mean_action) is float:
 
     def learn(self):
         # If current action is None
@@ -409,19 +410,7 @@ class Module(Supervisor):
                 replay_buf_reward.put(np.array(self.reward))
                 replay_buf_state.put(np.array(self.current_state))
                 replay_buf_state_.put(np.array(self.prev_state))
-                try:
-                    replay_buf_action.put(np.array(self.mean_action))
-                except TypeError:
-                    # There were errors with passing mean action, this is a temporary exception, will be removed
-                    # once no errors occur after a few trials
-                    print(f"global_actions: {self.global_actions}  ({type(self.global_actions)})")
-                    print(f"sum(gs): {sum(self.global_actions)} ({type(sum(self.global_actions))})")
-                    s = sum(self.global_actions)
-                    replay_buf_action.put(np.array(s.cpu()))
-
-                if self.bot_id == LEADER_ID:
-                    logger(reward=self.reward, cur_state=self.current_state,
-                           pre_state=self.prev_state, mean_action=self.mean_action)
+                replay_buf_action.put(np.array(self.current_action))
 
                 # for MFRL memory
                 #     state will keep track of this
@@ -499,8 +488,19 @@ def writer(name, num_of_bots, time_step, reward, loss):
 def logger(**kwargs):
     with open("log.txt", "a") as fin:
         for kwarg in kwargs:
-            fin.write("{}: {}\n".format(kwarg, kwargs[kwarg]))
+            fin.write("{}: {}      ".format(kwarg, kwargs[kwarg]))
+        fin.write("\n")
         fin.write("=================== ENTRY END ========================\n")
+
+    kl = len(kwargs)
+    with open("log.csv", "a") as fin:
+        for p, kwarg in enumerate(kwargs):
+            if (p+1) >= kl:
+                fin.write("{}".format(kwargs[kwarg]))
+            else:
+                fin.write("{},".format(kwargs[kwarg]))
+        fin.write("\n")
+
 
 if __name__ == '__main__':
     import time
@@ -538,11 +538,12 @@ if __name__ == '__main__':
                 assign_ = True
                 module.simulationReset()
                 module.old_pos = module.gps.getValues()
-                if module.bot_id == LEADER_ID:
-                    print(f"========================== M1 old_pos: {module.old_pos}")
-                    with open("M1_Rev_Track.txt", "a") as fin:
-                        fin.write("{},{},{}\n".format(time.time() - start_time,
-                                                      module.episode_reward, module.old_pos[0]))
+                # if module.bot_id == LEADER_ID:
+                #     print(f"========================== M1 old_pos: {module.old_pos}")
+                #     with open("M1_Rev_Track.txt", "a") as fin:
+                #         fin.write("{},{},{}\n".format(time.time() - start_time,
+                #                                       module.episode_reward, module.old_pos[0]))
+
                 last_episode = time.time()
         else:
             # assign_ is a temp needed to prevent infinite loop on the first Episode
