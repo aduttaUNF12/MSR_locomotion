@@ -369,7 +369,7 @@ class Module(Supervisor):
         # NUM_MODULE - 1 since we are taking a mean of all except current modules
         self.mean_action = a / (NUM_MODULES - 1)
         # logger(mean_action=self.mean_action, a=a)
-        self.mean_action_rounder()
+        # self.mean_action_rounder()
 
     # Takes mean_action and rounds it down
     def mean_action_rounder(self):
@@ -543,7 +543,6 @@ if __name__ == '__main__':
                 #     with open("M1_Rev_Track.txt", "a") as fin:
                 #         fin.write("{},{},{}\n".format(time.time() - start_time,
                 #                                       module.episode_reward, module.old_pos[0]))
-
                 last_episode = time.time()
         else:
             # assign_ is a temp needed to prevent infinite loop on the first Episode
