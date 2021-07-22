@@ -102,26 +102,52 @@ class Action:
 
 
 # the NN itself
-class LinearDQN(nn.Module):
+class CNN(nn.Module):
     def __init__(self, number_of_modules, lr, n_actions):
-        super(LinearDQN, self).__init__()
+        super(CNN, self).__init__()
+        self.number_of_modules = number_of_modules
+        self.n_actions = n_actions
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
 
-        self.fc1 = nn.Linear(1, number_of_modules*n_actions).to(self.device)
+        self.fc1 = nn.Conv2d(1, n_actions, kernel_size=(1, 1), stride=(1, 1)).to(self.device)
+        # self.fc1 = nn.Linear(1, number_of_modules*n_actions).to(self.device)
         # add the current state of the modules
-        self.fc2 = nn.Linear(number_of_modules*n_actions, number_of_modules*n_actions*10).to(self.device)
-        self.fc3 = nn.Linear(number_of_modules * n_actions * 10, n_actions).to(self.device)
+        self.fc2 = nn.Conv2d(n_actions, number_of_modules*n_actions, kernel_size=3, stride=1, padding=1).to(self.device)
+        self.fc3 = nn.Linear(number_of_modules * n_actions, n_actions).to(self.device)
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.loss = nn.MSELoss()
 
     def forward(self, actions):
-        layer1 = F.relu(self.fc1(actions))
-        layer2 = F.relu(self.fc2(layer1))
-        return self.fc3(layer2)
+        # unsqueeze is needed to turn 1-d input into a 4-d input
+        # print(f"Actions passed to NN: {actions}")
+        actions = actions.unsqueeze(1)
+        # print(f"Actions after unsqueeze(1): {actions}")
+        actions = actions.unsqueeze(1)
+        # print(f"Actions after unsqueeze(1): {actions}")
+        actions = actions.unsqueeze(1)
+        # print(f"Actions after unsqueeze(1): {actions}")
+        # print(f"Actions passed to fc1: {self.fc1(actions)}")
+        s1 = self.fc1(actions)
+        # print(f"s1: {s1}")
+        # layer1 = F.relu(self.fc1(actions))
+        # layer1 = F.relu(self.fc1(actions))
+        layer1 = F.relu(s1)
+        # print(f"Layer 1: {layer1}")
+        s2 = self.fc2(layer1)
+        # print(f"s2: {s2}")
+        # layer2 = F.relu(self.fc2(layer1))
+        layer2 = F.relu(s2)
+        # print(f"Layer 2: {layer2}")
+        layer2 = layer2.view(-1, self.number_of_modules * self.n_actions)
+        # print(f"Layer 2:{ layer2}")
+        s3 = self.fc3(layer2)
+        # print(f"s3: {s3}")
+        # return self.fc3(layer2)
+        return s3[0]
 
 
-policy_net = LinearDQN(NUM_MODULES, 0.001, 3)
+policy_net = CNN(NUM_MODULES, 0.001, 3)
 # agent who controls NN, in this case the main module (module 1)
 
 
@@ -141,7 +167,7 @@ class Agent:
         self.action_space = [i for i in range(self.n_actions)]
 
         # q estimate
-        self.Q = LinearDQN(self.number_of_modules, self.lr, n_actions)
+        self.Q = CNN(self.number_of_modules, self.lr, n_actions)
         self.Q.load_state_dict(policy_net.state_dict())
         self.Q.eval()
 
@@ -183,9 +209,14 @@ class Agent:
         # batch of rewards
         batch_reward = replay_buf_reward.get(random_sample)
 
+        # s_t_tensor = self.Q.forward(torch.transpose(torch.tensor(batch_sates, dtype=torch.float).to(self.Q.device), 0, -1))
+        # a_tensor = torch.tensor(batch_action, dtype=torch.int64).to(self.Q.device)
+        # state_action_q_values.append(torch.gather(s_t_tensor, 0, a_tensor))
         for s_t, a in zip(batch_sates, batch_action):
             s_t_tensor = self.Q.forward(torch.tensor([s_t], dtype=torch.float).to(self.Q.device))
-            a_tensor = torch.tensor(a, dtype=torch.int64).to(self.Q.device)
+            a_tensor = torch.tensor([a], dtype=torch.int64).to(self.Q.device)
+            # print(f"s_t_tensor: {s_t_tensor}")
+            # print(f"a_tensor: {a_tensor}")
             state_action_q_values.append(torch.gather(s_t_tensor, 0, a_tensor))
 
         #  get q value for state_
@@ -225,6 +256,8 @@ class Agent:
 # robot module instance
 class Module(Supervisor):
     def __init__(self):
+        # TODO: add mean values to the buffer
+        # TODO: CNN instead of DQN
         Supervisor.__init__(self)
         #  webots section
         self.bot_id = int(self.getName()[7])
