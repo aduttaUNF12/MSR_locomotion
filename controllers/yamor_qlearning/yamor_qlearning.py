@@ -119,22 +119,14 @@ class CNN(nn.Module):
         self.bn2 = nn.BatchNorm2d(64).to(self.device)
 
         # self.conv3 = nn.Conv2d(number_of_modules*n_actions, number_of_modules*n_actions*5, kernel_size=3).to(self.device)
-        # self.conv3 = nn.Conv2d(64, 128, kernel_size=1).to(self.device)
-        self.conv3 = nn.Conv2d(64, BATCH_SIZE, kernel_size=1).to(self.device)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=1).to(self.device)
         self.bn3 = nn.BatchNorm2d(128).to(self.device)
 
-        # self.fc1 = nn.Linear(1, number_of_modules*n_actions).to(self.device)
-
-        # x = torch.randn(BATCH_SIZE, 1).to(self.device).view(-1, 1, BATCH_SIZE, 1)
         x = torch.rand((BATCH_SIZE, 1)).to(self.device).view(-1, 1, BATCH_SIZE, 1)
-        # x = torch.randn(1, 2, BATCH_SIZE, 1).to(self.device)
-        # x = torch.rand((BATCH_SIZE, 1)).to(self.device).view(-1, )
-        # print(f"x torch rand: {x}")
 
         self._to_linear = None
         self.convs(x)
 
-        # self.fc1 = nn.Linear(self._to_linear, 515).to(self.device)
         self.fc1 = nn.Linear(self._to_linear, 515).to(self.device)
         self.fc2 = nn.Linear(515, 3).to(self.device)
 
@@ -142,118 +134,29 @@ class CNN(nn.Module):
         self.loss = nn.MSELoss()
 
     def convs(self, x):
-        # print(f"!!!!! INSIDE CONVS with x: {x}\nshape x: {x.shape}")
-        # x = self.conv1(x)
-        # print(f"conv1 res: {x}")
-        # x = F.relu(x)
-        # print(f"relu res: {x}")
-        # x = F.max_pool2d(x, (1, 1))
-        # print(f"max_pool2d res: {x}")
-        # exit(1)
-        # x = F.max_pool2d(F.relu(self.conv1(x)), (1, 1))
-
-
-        # print(f"init x: {x} (size) {x.size()}")
-        # exit(123)
         x = self.conv1(x)
-        # print(f"after conv1: {x}")
         x = self.bn1(x)
-        # print(f"after bn1: {x}")
         x = F.relu(x)
-        # print(f"after relu: {x}")
-        # print("######################################################")
         x = self.conv2(x)
-        # print(f"after conv2: {x}")
         x = self.bn2(x)
-        # print(f"after bn2: {x}")
         x = F.relu(x)
-        # print(f"after relu2: {x}")
-        # print("######################################################")
         x = self.conv3(x)
-        # print(f"after conv3: {x}")
         x = self.bn3(x)
-        # print(f"after bn3: {x}")
         x = F.relu(x)
-        # print(f"after relu3: {x} (size): {x.size()}  (shape): {x.shape}")
-        # print("######################################################")
-
-        # print(f"Past conv1 x: {x}")
-        # x = F.max_pool2d(F.relu(self.conv2(x)), (1, 1))
-        # print(f"Past conv2 x: {x}")
-        # x = F.max_pool2d(F.relu(self.conv3(x)), (1, 1))
-        # print(f"Past conv3 x: {x}")
 
         if self._to_linear is None:
-            # print(f"init _to_linear: {self._to_linear}")
-            # print(f"x size {x.size()}")
-            #
-            # print(f"x[0]: {x[0]}")
-            # print(f"x[0]: {x[0].shape[0]}")
-            # print(f"x[0]: {x[0].shape[0]*x[0]}")
-            # print(f"x[0]: {x[0].shape[0]*x[0].shape[1]}")
-            # print(f"x[0]: {x[0].shape[0]*x[0].shape[1]*x[0]}")
-            #
-            #
-            # print(f"x[0]: {x[0].shape[0]*x[0].shape[1]*x[0].shape[2]}")
             self._to_linear = x[0].shape[0]*x[0].shape[1]*x[0].shape[2]
-            # exit(22)
-            # print(f"_to_linear: {self._to_linear}\nx: {x}")
+
         return x
 
     def forward(self, actions):
         x = self.convs(actions)
-        # print(f"x size(0): {x.size(0)}")
         x = x.view(x.size(0), -1)
-        # print(f"x after view: {x}")
         x = self.fc1(x)
-        # print(f"x after fc1: {x} (size) {x.size()}")
         x = F.relu(x)
-        # print(f"x after relu(post fc1): {x}")
         x = self.fc2(x)
-        # print(f"x after fc2: {x}")
-        # return x
-        # exit(66)
-        # print(f"self._to_linear: {self._to_linear}")
-        # print(f"x.view(): {x.view(1,  515)}")
-        # exit(13)
-        # x = x.view(-1, self._to_linear)
-        # print(f"x after x.view: {x}")
-        # x = F.relu(self.fc1(x))
-        # x = self.fc2(x)
-        # print(f"F.softmax(x): {F.softmax(x, dim=1)}")
-        # print(f"x: {x}")
-        # exit(1)
-        # return F.softmax(x, dim=1)
-        return x[0]
 
-        #
-        #
-        # # unsqueeze is needed to turn 1-d input into a 4-d input
-        # # print(f"Actions passed to NN: {actions}")
-        # actions = actions.unsqueeze(1)
-        # # print(f"Actions after unsqueeze(1): {actions}")
-        # actions = actions.unsqueeze(1)
-        # # print(f"Actions after unsqueeze(1): {actions}")
-        # actions = actions.unsqueeze(1)
-        # # print(f"Actions after unsqueeze(1): {actions}")
-        # # print(f"Actions passed to fc1: {self.fc1(actions)}")
-        # s1 = self.conv1(actions)
-        # # print(f"s1: {s1}")
-        # # layer1 = F.relu(self.fc1(actions))
-        # # layer1 = F.relu(self.fc1(actions))
-        # layer1 = F.relu(s1)
-        # # print(f"Layer 1: {layer1}")
-        # s2 = self.conv2(layer1)
-        # # print(f"s2: {s2}")
-        # # layer2 = F.relu(self.fc2(layer1))
-        # layer2 = F.relu(s2)
-        # # print(f"Layer 2: {layer2}")
-        # layer2 = layer2.view(-1, self.number_of_modules * self.n_actions)
-        # # print(f"Layer 2:{ layer2}")
-        # s3 = self.fc1(layer2)
-        # # print(f"s3: {s3}")
-        # # return self.fc3(layer2)
-        # return s3[0]
+        return x[0]
 
 
 policy_net = CNN(NUM_MODULES, 0.001, 3)
@@ -314,19 +217,14 @@ class Agent:
         # it converts size [128] (original tensor size) to [1, 1, 128, 1]
         batch_states = torch.tensor(replay_buf_state.get(random_sample), dtype=torch.float)
         batch_action = torch.tensor(replay_buf_action.get(random_sample), dtype=torch.int64)
-        # batch_reward = torch.tensor(replay_buf_reward.get(random_sample)).to(self.target_net.device).view(-1, 1, BATCH_SIZE, 1)
         batch_reward = torch.tensor(replay_buf_reward.get(random_sample)).to(self.target_net.device)
-        # batch_reward = torch.tensor(replay_buf_reward.get(random_sample))
-        # batch_states_next = torch.tensor(replay_buf_state_.get(random_sample)).to(self.target_net.device)
         batch_states_next = torch.tensor(replay_buf_state_.get(random_sample))
 
         state_action_values = []
         for index, state in enumerate(batch_states):
             # creates a [BATCH_SIZE] shaped tensor full of state values
             full_states = torch.full((BATCH_SIZE, ), state, dtype=torch.float).view(-1, 1, BATCH_SIZE, 1).to(policy_net.device)
-            # r = policy_net(full_states).to('cpu')
             r = policy_net(full_states)
-            # r = r.to('cpu')
             state_action_values.append(r[batch_action[index]])
         del full_states
         state_action_values = torch.stack(state_action_values)
@@ -340,25 +238,10 @@ class Agent:
         del r, full_states_
 
         expected_state_action_values = (torch.stack(expected_state_action_values) * self.alpha) + batch_reward
-        # expected_state_action_values = (torch.stack(expected_state_action_values) * self.alpha)
-        # expected_state_action_values_fin = []
-        # # had to do the loop since after addition of reward the shape gets messed up
-        # for index, esav in enumerate(expected_state_action_values):
-        #     expected_state_action_values_fin.append(esav + batch_reward[index])
 
-        # expected_state_action_values_fin = torch.stack(expected_state_action_values_fin)
-        # expected_state_action_values_fin = expected_state_action_values_fin.float().to('cpu')
-
-        # expected_state_action_values = expected_state_action_values.float()
-        # expected_state_action_values = expected_state_action_values.to('cpu')
-
-
-        # loss = policy_net.loss(state_action_values, expected_state_action_values).to(policy_net.device)
-        # loss = policy_net.loss(state_action_values, expected_state_action_values_fin)
         state_action_values = state_action_values.float()
         expected_state_action_values = expected_state_action_values.float()
         loss = policy_net.loss(state_action_values, expected_state_action_values)
-        # print(f"loss: {loss}")
         loss.backward()
         policy_net.optimizer.step()
         self.decrement_epsilon()
@@ -375,137 +258,6 @@ class Agent:
             self.updated = False
 
         return loss
-
-        # # loss = self.main_network.loss(state_action_q_values, expected_next_state_q_values).to(self.main_network.device)
-        # loss = train_network.loss(state_action_q_values, expected_next_state_q_values).to(train_network.device)
-        # # print(f"loss: {loss}")
-        # loss.backward()
-        # # self.main_network.optimizer.step()
-        # train_network.optimizer.step()
-        # self.decrement_epsilon()
-        #
-        #
-        #
-        # exit(111)
-        #
-        #
-        # # batch_states = torch.tensor(replay_buf_state.get(random_sample), dtype=torch.float).to(policy_net.device).view(-1, 1, BATCH_SIZE, 1)
-        # # print(f"batch[0] : {batch_states[0]}")
-        # # exit(11)
-        # batch_action = torch.tensor(replay_buf_action.get(random_sample)).to(policy_net.device).view(-1, 1, BATCH_SIZE, 1)
-        # batch_reward = torch.tensor(replay_buf_reward.get(random_sample)).to(policy_net.device).view(-1, 1, BATCH_SIZE, 1)
-        #
-        # # x = torch.randn(BATCH_SIZE, 1).view(-1, 1, BATCH_SIZE, 1).to(self.device)
-        # # print(f"torch.randn(Batch_size,1): {torch.randn(BATCH_SIZE, 1)} (size) {torch.randn(BATCH_SIZE, 1).size()}")
-        # # print(f"batch_states resized: {batch_states.view(-1, 1, batch_states.size()[0], 1).size()}")
-        # # print(f"batch_states: {batch_states} (size) {batch_states.size()}")
-        # # exit(11)
-        # # state_action_values = policy_net(batch_states).gather(1, batch_action)
-        # # state_action_values = policy_net(batch_states).
-        # # print(f"state_action_values: {state_action_values}")
-        #
-        #
-        #
-        # exit(11)
-        # # states__t = torch.tensor(state_, dtype=torch.float).to(self.main_network.device)
-        # # states__t = torch.tensor(state_, dtype=torch.float).to(train_network.device)
-        #
-        # # # batch of past states_
-        # # batch_state_ = replay_buf_state_.get(random_sample)
-        # # # batch of states
-        # # batch_sates = replay_buf_state.get(random_sample)
-        # # # batch of actions
-        # # batch_action = replay_buf_action.get(random_sample)
-        # # batch_action_ = replay_buf_action.get(prev_random_sample)
-        # # # batch of rewards
-        # # batch_reward = replay_buf_reward.get(random_sample)
-        # # batch_reward_ = replay_buf_reward.get(prev_random_sample)
-        # # # state  + action  + reward   training batch
-        # # # state_ + action_ + reward_  prev_batch
-        # #
-        # # print(f"batch_states: {batch_sates}")
-        # # print(f"batch_action: {batch_action}")
-        # # print(f"batch_rewards: {batch_reward}")
-        # # s_a_a = np.array(list(zip(batch_sates, batch_action, batch_reward)), dtype=np.float)
-        # # # s_a_a = np.array(list(zip(batch_sates, batch_action)), dtype=np.float)
-        # # # shape = [128, 3] need [32,1,1,1]
-        # # s_a_a_t = torch.tensor(s_a_a, dtype=torch.float).to(self.target_net.device)
-        # # print(f"f: {s_a_a_t}")
-        # # # shape = [128, 1, 3] need [32,1,1,1]
-        # # s_a_a_t = s_a_a_t.unsqueeze(1)
-        # # # shape = [128, 1, 1, 3] works with [32, 1, 1, 1]
-        # # s_a_a_t = s_a_a_t.unsqueeze(1)
-        # # r = self.target_net.forward(s_a_a_t)
-        # # print(f"r: {r}")
-        # #
-        # # v_a_a = np.array(list(zip(batch_state_, batch_action_, batch_reward_)), dtype=np.float)
-        # # # v_a_a = np.array(list(zip(batch_state_, batch_action_, batch_reward_)), dtype=np.float)
-        # # print(f"v_a_a: {v_a_a}")
-        # # v_a_a_t = torch.tensor(v_a_a, dtype=torch.float).to(train_network.device)
-        # # print(f"v_a_a_t: {v_a_a_t}")
-        # #
-        # # v_a_a_t = v_a_a_t.unsqueeze(1)
-        # # print(f"v_a_a_t us1: {v_a_a_t}")
-        # #
-        # # v_a_a_t = v_a_a_t.unsqueeze(1)
-        # # print(f"v_a_a_t us2: {v_a_a_t}")
-        # #
-        # # g = train_network.forward(v_a_a_t)
-        # # print(f"g: {g}")
-        # #
-        # # g = torch.max(g).to(train_network.device) * self.alpha
-        # # print(f"g 2: {g}")
-        # # exit(11)
-        #
-        #
-        #
-        #
-        # # s_t_tensor = self.Q.forward(torch.transpose(torch.tensor(batch_sates, dtype=torch.float).to(self.Q.device), 0, -1))
-        # # a_tensor = torch.tensor(batch_action, dtype=torch.int64).to(self.Q.device)
-        # # state_action_q_values.append(torch.gather(s_t_tensor, 0, a_tensor))
-        # for s_t, a in zip(batch_sates, batch_action):
-        #     s_t_tensor = self.target_net.forward(torch.tensor([s_t], dtype=torch.float).to(self.target_net.device))
-        #     # s_t_tensor = train_network.forward(torch.tensor([s_t], dtype=torch.float).to(train_network.device))
-        #     a_tensor = torch.tensor([a], dtype=torch.int64).to(self.target_net.device)
-        #     # a_tensor = torch.tensor([a], dtype=torch.int64).to(train_network.device)
-        #     # print(f"s_t_tensor: {s_t_tensor}")
-        #     # print(f"a_tensor: {a_tensor}")
-        #     state_action_q_values.append(torch.gather(s_t_tensor, 0, a_tensor))
-        #
-        # #  get q value for state_
-        # # for s_q_id, s_q in enumerate(states__t):
-        # #     if batch_reward[s_q_id] is None:
-        # #         r = batch_reward[s_q_id]
-        # #     else:
-        # #         r = 0
-        # #     expected_next_state_q_values.append(
-        # #         (torch.max(train_network(torch.tensor([s_q], dtype=torch.float).to(self.main_network.device))) * self.alpha) + r)
-        # #         # (torch.max(self.Q.forward(torch.tensor([s_q], dtype=torch.float).to(self.Q.device))) * self.alpha) + r)
-        #
-        # # turn tensor lists into a single tensor
-        # state_action_q_values = torch.stack(state_action_q_values)
-        # expected_next_state_q_values = torch.stack(expected_next_state_q_values)
-        #
-        # # loss = self.main_network.loss(state_action_q_values, expected_next_state_q_values).to(self.main_network.device)
-        # loss = train_network.loss(state_action_q_values, expected_next_state_q_values).to(train_network.device)
-        # # print(f"loss: {loss}")
-        # loss.backward()
-        # # self.main_network.optimizer.step()
-        # train_network.optimizer.step()
-        # self.decrement_epsilon()
-        #
-        # if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
-        #     print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
-        #     self.target_net.load_state_dict(train_network.state_dict())
-        #
-        #     if BASE_LOGS_FOLDER is not None:
-        #         torch.save(module.agent.target_net.state_dict(), os.path.join(BASE_LOGS_FOLDER, "agent.pt"))
-        #
-        #     self.updated = True
-        # elif EPISODE % UPDATE_PERIOD != 0:
-        #     self.updated = False
-        #
-        # return loss
 
 
 # robot module instance
@@ -567,7 +319,6 @@ class Module(Supervisor):
 
         # getting leader to decide initial actions
         self.current_action = np.random.choice([i for i in range(3)], 1)[0]
-        # print(f"[*] {self.bot_id} - initial action: {self.current_action}")
         self.prev_actions = self.current_action
 
         # TEMP FOR ERROR CHECKING TODO
@@ -617,8 +368,6 @@ class Module(Supervisor):
     def action_neutral(self):
         # TODO: REMOVE IF HAS ODD RESULTS
         # experiment to see if making neutral not do anything will be beneficial or not
-
-
         # self.motor.setPosition(0)
         pass
 
@@ -721,9 +470,6 @@ class Module(Supervisor):
                 # If Episode changed
                 if EPISODE > self.prev_episode:
                     if self.bot_id == LEADER_ID:
-                        # print(f"Buffer len: {replay_buf_state.return_buffer_len} "
-                        #       f"{(replay_buf_state.return_buffer_len/MEMORY_CAPACITY)*100}%"
-                        #       f" Loss: {self.loss}")
                         # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
                     self.episode_reward = 0
@@ -810,6 +556,7 @@ if __name__ == '__main__':
     assign_ = False
     learn = True
     i = 0
+    episode_lens = []
     while i < 100:
         i += 1
         time.sleep(0.05)
@@ -829,25 +576,22 @@ if __name__ == '__main__':
                 EPISODE += 1
 
                 if module.bot_id == LEADER_ID:
+                    temp = time.time() - last_episode
                     print(f"Episode: {EPISODE} -- "
-                          f"{time.time() - start_time} ===== time since last episode: {time.time() - last_episode} ====== Episode reward: {module.episode_reward} == Loss: {module.loss}")
-                    # last_episode = time.time()
+                          f"{time.time() - start_time} ===== time since last episode: {temp} ====== Episode reward: {module.episode_reward} == Loss: {module.loss}")
+                    episode_lens.append(temp)
 
                 assign_ = True
                 module.simulationReset()
                 module.old_pos = module.gps.getValues()
-                # if module.bot_id == LEADER_ID:
-                #     print(f"========================== M1 old_pos: {module.old_pos}")
-                #     with open("M1_Rev_Track.txt", "a") as fin:
-                #         fin.write("{},{},{}\n".format(time.time() - start_time,
-                #                                       module.episode_reward, module.old_pos[0]))
                 last_episode = time.time()
         else:
             # assign_ is a temp needed to prevent infinite loop on the first Episode
             assign_ = False
         if EPISODE > MAX_EPISODE:
-        # if EPISODE > 150:
             end = time.time()
-            print(f"Runtime: {end - start_time}")
-            print("LOGGING OFF")
+            if module.bot_id == LEADER_ID:
+                print(f"Avg time per episode: {float(sum(episode_lens)/len(episode_lens))} sec")
+                print(f"Runtime: {end - start_time}")
+                print("LOGGING OFF")
             exit()
