@@ -1,18 +1,17 @@
 import math
-from datetime import date
-import tqdm
-
-from controller import Supervisor
 import random
 import struct
 import sys
 import os
+from collections import namedtuple
+from datetime import date
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from collections import namedtuple
+from controller import Supervisor
 
 
 __version__ = '08.07.21'
@@ -23,10 +22,12 @@ EPSILON = 1
 ALPHA = 0.1
 MIN_EPSILON = 0.1
 T = 0.1
-BATCH_SIZE = 128
+# BATCH_SIZE = 128
+BATCH_SIZE = 64
 MAX_EPISODE = 5000
 # MEMORY_CAPACITY = 10**10
-MEMORY_CAPACITY = 2**30
+# MEMORY_CAPACITY = 2**30
+MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577 of data we would only need just over 3 mil spots, so this should work and optimize things a bit
 # MEMORY_CAPACITY = 2**20
 # MAX_EPISODE = 10
 UPDATE_PERIOD = 10
@@ -44,6 +45,9 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 BASE_LOGS_FOLDER = None
+
+
+ReplayMemory_EpisodeBuffer = {}
 
 
 # FROM MFRL paper
@@ -111,15 +115,15 @@ class CNN(nn.Module):
         self.to(self.device)  # send network to device
 
         # self.conv1 = nn.Conv2d(1, n_actions, kernel_size=3).to(self.device)
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=1).to(self.device)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(3, 1)).to(self.device)
         self.bn1 = nn.BatchNorm2d(32).to(self.device)
 
         # self.conv2 = nn.Conv2d(n_actions, number_of_modules*n_actions, kernel_size=3).to(self.device)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=1).to(self.device)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(3, 1)).to(self.device)
         self.bn2 = nn.BatchNorm2d(64).to(self.device)
 
         # self.conv3 = nn.Conv2d(number_of_modules*n_actions, number_of_modules*n_actions*5, kernel_size=3).to(self.device)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=1).to(self.device)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(3, 1)).to(self.device)
         self.bn3 = nn.BatchNorm2d(128).to(self.device)
 
         x = torch.rand((BATCH_SIZE, 1)).to(self.device).view(-1, 1, BATCH_SIZE, 1)
@@ -166,6 +170,7 @@ policy_net = CNN(NUM_MODULES, 0.001, 3)
 class Agent:
     # policy_net = does all of the training and tests
     # target_net = final network
+    # TODO: look into masking
 
     def __init__(self, module_number, number_of_modules, n_actions, lr, alpha=0.99,
                  epsilon=1, eps_dec=1e-5, eps_min=0.01):
@@ -204,43 +209,55 @@ class Agent:
             self.epsilon = self.eps_min
 
     def learn(self):
-        # self.main_network.optimizer.zero_grad()
         policy_net.optimizer.zero_grad()
-        # TODO: priority memory
-        # pull a random BATCH of data from replay buffer
-        random_sample = np.random.randint(1, replay_buf_state.head, BATCH_SIZE, np.int)
-        # a matrix of sample locations in a replay buffer which are than being referenced once pulling needed data types
-        # t = np.ones(shape=(BATCH_SIZE,), dtype=np.int)
-        # prev_random_sample = np.subtract(random_sample, t)
 
-        # .view(-1, 1, BATCH_SIZE, 1) is used to reshape the tensor to fit the expected input,
-        # it converts size [128] (original tensor size) to [1, 1, 128, 1]
-        batch_states = torch.tensor(replay_buf_state.get(random_sample), dtype=torch.float)
-        batch_action = torch.tensor(replay_buf_action.get(random_sample), dtype=torch.int64)
-        batch_reward = torch.tensor(replay_buf_reward.get(random_sample)).to(self.target_net.device)
-        batch_states_next = torch.tensor(replay_buf_state_.get(random_sample))
+        episodes = range(len(ReplayMemory_EpisodeBuffer))[1:]
+        if len(ReplayMemory_EpisodeBuffer) >= BATCH_SIZE:
+            sample = np.random.choice(episodes, BATCH_SIZE, replace=False)
+        else:
+            sample = np.array([len(ReplayMemory_EpisodeBuffer)])
+        del episodes
+
+        ranges = []
+
+        for s in sample:
+            # This is done mainly because all of the Episodes contain 577 actions, but some have 576
+            # (it might just be the first Episode that only has 576 but I need to look further into it,
+            # for now this works)
+            if ReplayMemory_EpisodeBuffer[s]['max'] - ReplayMemory_EpisodeBuffer[s]['min'] > 576:
+                sub = ReplayMemory_EpisodeBuffer[s]['max'] - ReplayMemory_EpisodeBuffer[s]['min'] - 576
+                ReplayMemory_EpisodeBuffer[s]['max'] = ReplayMemory_EpisodeBuffer[s]['max'] - sub
+            ranges.append(np.arange(ReplayMemory_EpisodeBuffer[s]['min'],
+                                    ReplayMemory_EpisodeBuffer[s]['max']))
+
+        rewards = replay_buf_reward.get(sample)
+        del sample
 
         state_action_values = []
-        for index, state in enumerate(batch_states):
-            # creates a [BATCH_SIZE] shaped tensor full of state values
-            full_states = torch.full((BATCH_SIZE, ), state, dtype=torch.float).view(-1, 1, BATCH_SIZE, 1).to(policy_net.device)
-            r = policy_net(full_states)
-            state_action_values.append(r[batch_action[index]])
-        del full_states
-        state_action_values = torch.stack(state_action_values)
-
         expected_state_action_values = []
-        for index, state_ in enumerate(batch_states_next):
-            full_states_ = torch.full((BATCH_SIZE, ), state_, dtype=torch.float).view(-1, 1, BATCH_SIZE, 1).to(self.target_net.device)
-            r = self.target_net(full_states_)
-            r = torch.tensor(np.argmax(r.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device)
-            expected_state_action_values.append(r)
-        del r, full_states_
+        for index1, r in enumerate(ranges):
+            temp_action = replay_buf_action.get(r)
+            temp_states = replay_buf_state.get(r)
+            temp_states_ = replay_buf_state_.get(r)
 
-        expected_state_action_values = (torch.stack(expected_state_action_values) * self.alpha) + batch_reward
+            for index2, item in enumerate(temp_states):
+                res = policy_net(torch.full((BATCH_SIZE, ), item, dtype=torch.float, requires_grad=True).view(-1, 1, BATCH_SIZE, 1).to(policy_net.device))
+                res = res.to('cpu')
+                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(policy_net.device))
+                del res
+            del item, index2
 
-        state_action_values = state_action_values.float()
-        expected_state_action_values = expected_state_action_values.float()
+            for item in temp_states_:
+                res = self.target_net(torch.full((BATCH_SIZE, ), item, dtype=torch.float, requires_grad=False).view(-1, 1, BATCH_SIZE, 1).to(self.target_net.device))
+                expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.alpha) + rewards[index1])
+                del res
+
+            del item
+
+        state_action_values = torch.stack(state_action_values)
+        state_action_values = state_action_values.double().float()
+        expected_state_action_values = torch.stack(expected_state_action_values).double().float()
+
         loss = policy_net.loss(state_action_values, expected_state_action_values)
         loss.backward()
         policy_net.optimizer.step()
@@ -259,18 +276,19 @@ class Agent:
 
         return loss
 
-
 # robot module instance
 class Module(Supervisor):
     def __init__(self):
-        # TODO: add mean values to the buffer
-        # TODO: CNN instead of DQN
         Supervisor.__init__(self)
         #  webots section
         self.bot_id = int(self.getName()[7])
         self.timeStep = int(self.getBasicTimeStep())
-        self.prev_episode = EPISODE
+        self.prev_episode = 1
         self.episode_reward = 0
+        self.episode_mean_action = []
+        self.prev_episode_mean_action = []
+        self.episode_current_action = []
+
         self.self_message = bytes
 
         self.gps = self.getDevice("gps")
@@ -323,6 +341,11 @@ class Module(Supervisor):
 
         # TEMP FOR ERROR CHECKING TODO
         self.tries = 0
+        self.batch_tick_subs = 0
+
+        self.min_max_set = False
+        self.min_batch = 0
+        self.max_batch = 0
 
 
         self.state_changer()
@@ -453,33 +476,51 @@ class Module(Supervisor):
             if self.reward != self.reward or self.reward is None:
                 pass
             else:
-                # pass values to corresponding replay buffers
-                replay_buf_reward.put(np.array(self.reward))
-                # replay_buf_state.put(np.array(self.current_state))
-                replay_buf_state.put(np.array(self.mean_action))
-                # replay_buf_state_.put(np.array(self.prev_state))
-                replay_buf_state_.put(np.array(self.prev_mean_action))
-                replay_buf_action.put(np.array(self.current_action))
+                if not self.min_max_set:
+                    self.min_batch = replay_buf_state.return_buffer_len
+                    self.min_max_set = True
 
-                # for MFRL memory
-                #     state will keep track of this
-                replay_buf_state.return_buffer_len = \
-                    min(MEMORY_CAPACITY, replay_buf_state.return_buffer_len + self.batch_ticks)
-                # add reward to current episode_reward
+                replay_buf_state.return_buffer_len += 1
+                if replay_buf_state.return_buffer_len > MEMORY_CAPACITY:
+                    print(f"Replay buffer is full")
+                    exit(11)
+
                 self.episode_reward += self.reward
+                self.episode_mean_action.append(self.mean_action)
+                self.prev_episode_mean_action.append(self.prev_mean_action)
+
+                self.episode_current_action.append(self.current_action)
+
                 # If Episode changed
                 if EPISODE > self.prev_episode:
+
+                    self.max_batch = replay_buf_state.return_buffer_len
+                    self.min_max_set = False
+                    ReplayMemory_EpisodeBuffer[EPISODE-1] = {"min": self.min_batch,
+                                                             "max": self.max_batch}
+
+                    replay_buf_reward.put(np.array(self.episode_reward))
+                    replay_buf_state.put(np.array(self.episode_mean_action))
+                    replay_buf_state_.put(np.array(self.prev_episode_mean_action))
+                    replay_buf_action.put(np.array(self.episode_current_action))
+
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
+
                     self.episode_reward = 0
+                    self.episode_mean_action.clear()
+                    self.prev_episode_mean_action.clear()
+                    self.episode_current_action.clear()
                     self.prev_episode = EPISODE
-                # batch is full
+                    self.batch_ticks += 1
+                    self.loss = self.agent.learn()
+
+                # batch is at least at the minimal working size
                 if self.batch_ticks > BATCH_SIZE:
                     # run the NN and collect loss
                     self.loss = self.agent.learn()
                     self.batch_ticks = 0
-                else: self.batch_ticks += 1
 
             # TODO: change to neighbor modules later on
             # set previous action option to the new one
