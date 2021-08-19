@@ -23,7 +23,8 @@ ALPHA = 0.1
 MIN_EPSILON = 0.1
 T = 0.1
 # BATCH_SIZE = 128
-BATCH_SIZE = 64
+# BATCH_SIZE = 64
+BATCH_SIZE = 5
 MAX_EPISODE = 5000
 # MEMORY_CAPACITY = 10**10
 # MEMORY_CAPACITY = 2**30
@@ -126,7 +127,7 @@ class CNN(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=(3, 1)).to(self.device)
         self.bn3 = nn.BatchNorm2d(128).to(self.device)
 
-        x = torch.rand((BATCH_SIZE, 1)).to(self.device).view(-1, 1, BATCH_SIZE, 1)
+        x = torch.rand((64, 1)).to(self.device).view(-1, 1, 64, 1)
 
         self._to_linear = None
         self.convs(x)
@@ -194,7 +195,7 @@ class Agent:
     # Greedy action selection
     def choose_action(self, module_actions):
         if random.random() < (1 - self.epsilon):
-            temp = torch.full((BATCH_SIZE, ), module_actions, dtype=torch.float).view(-1, 1, BATCH_SIZE, 1).to(policy_net.device)
+            temp = torch.full((64, ), module_actions, dtype=torch.float).view(-1, 1, 64, 1).to(policy_net.device)
             action = policy_net.forward(temp)
             return [np.argmax(action.to('cpu').detach().numpy())]
         else:
@@ -208,12 +209,13 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
-    def learn(self):
+    # def learn(self):
+    def optimize(self, batch=False):
         policy_net.optimizer.zero_grad()
 
         episodes = range(len(ReplayMemory_EpisodeBuffer))[1:]
-        if len(ReplayMemory_EpisodeBuffer) >= BATCH_SIZE:
-            sample = np.random.choice(episodes, BATCH_SIZE, replace=False)
+        if len(ReplayMemory_EpisodeBuffer) >= BATCH_SIZE and batch is True:
+            sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
         else:
             sample = np.array([len(ReplayMemory_EpisodeBuffer)])
         del episodes
@@ -241,14 +243,14 @@ class Agent:
             temp_states_ = replay_buf_state_.get(r)
 
             for index2, item in enumerate(temp_states):
-                res = policy_net(torch.full((BATCH_SIZE, ), item, dtype=torch.float, requires_grad=True).view(-1, 1, BATCH_SIZE, 1).to(policy_net.device))
+                res = policy_net(torch.full((64, ), item, dtype=torch.float, requires_grad=True).view(-1, 1, 64, 1).to(policy_net.device))
                 res = res.to('cpu')
                 state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(policy_net.device))
                 del res
             del item, index2
 
             for item in temp_states_:
-                res = self.target_net(torch.full((BATCH_SIZE, ), item, dtype=torch.float, requires_grad=False).view(-1, 1, BATCH_SIZE, 1).to(self.target_net.device))
+                res = self.target_net(torch.full((64, ), item, dtype=torch.float, requires_grad=False).view(-1, 1, 64, 1).to(self.target_net.device))
                 expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.alpha) + rewards[index1])
                 del res
 
@@ -263,6 +265,7 @@ class Agent:
         policy_net.optimizer.step()
         self.decrement_epsilon()
 
+        # if EPISODE % UPDATE_PERIOD == 0 and self.updated is False or batch is True:
         if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
             self.target_net.load_state_dict(policy_net.state_dict())
@@ -514,12 +517,12 @@ class Module(Supervisor):
                     self.episode_current_action.clear()
                     self.prev_episode = EPISODE
                     self.batch_ticks += 1
-                    self.loss = self.agent.learn()
+                    # self.loss = self.agent.optimize()
 
                 # batch is at least at the minimal working size
                 if self.batch_ticks > BATCH_SIZE:
                     # run the NN and collect loss
-                    self.loss = self.agent.learn()
+                    self.loss = self.agent.optimize(batch=True)
                     self.batch_ticks = 0
 
             # TODO: change to neighbor modules later on
