@@ -213,6 +213,7 @@ class Agent:
     def optimize(self, batch=False):
         policy_net.optimizer.zero_grad()
 
+        #
         episodes = range(len(ReplayMemory_EpisodeBuffer))[1:]
         if len(ReplayMemory_EpisodeBuffer) >= BATCH_SIZE and batch is True:
             sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
@@ -231,8 +232,6 @@ class Agent:
                 ReplayMemory_EpisodeBuffer[s]['max'] = ReplayMemory_EpisodeBuffer[s]['max'] - sub
             ranges.append(np.arange(ReplayMemory_EpisodeBuffer[s]['min'],
                                     ReplayMemory_EpisodeBuffer[s]['max']))
-
-        rewards = replay_buf_reward.get(sample)
         del sample
 
         state_action_values = []
@@ -241,6 +240,7 @@ class Agent:
             temp_action = replay_buf_action.get(r)
             temp_states = replay_buf_state.get(r)
             temp_states_ = replay_buf_state_.get(r)
+            temp_rewards = replay_buf_reward.get(r)
 
             for index2, item in enumerate(temp_states):
                 res = policy_net(torch.full((64, ), item, dtype=torch.float, requires_grad=True).view(-1, 1, 64, 1).to(policy_net.device))
@@ -249,9 +249,9 @@ class Agent:
                 del res
             del item, index2
 
-            for item in temp_states_:
+            for index3, item in enumerate(temp_states_):
                 res = self.target_net(torch.full((64, ), item, dtype=torch.float, requires_grad=False).view(-1, 1, 64, 1).to(self.target_net.device))
-                expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.alpha) + rewards[index1])
+                expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.alpha) + temp_rewards[index3])
                 del res
 
             del item
@@ -279,6 +279,7 @@ class Agent:
 
         return loss
 
+
 # robot module instance
 class Module(Supervisor):
     def __init__(self):
@@ -288,6 +289,7 @@ class Module(Supervisor):
         self.timeStep = int(self.getBasicTimeStep())
         self.prev_episode = 1
         self.episode_reward = 0
+        self.episode_rewards = []
         self.episode_mean_action = []
         self.prev_episode_mean_action = []
         self.episode_current_action = []
@@ -319,7 +321,7 @@ class Module(Supervisor):
         self.old_pos = self.gps.getValues()
         self.new_pos = self.old_pos
         self.t = 0
-        self.batch_ticks = 0
+        self.batch_ticks = 1
         self.reward = 0
         self.loss = None
         self.calc_reward()
@@ -336,7 +338,6 @@ class Module(Supervisor):
         self.current_state = 1
         self.prev_state = self.current_state
         self.act = None
-        # self.previous_module_state = self.global_actions
 
         # getting leader to decide initial actions
         self.current_action = np.random.choice([i for i in range(3)], 1)[0]
@@ -344,12 +345,10 @@ class Module(Supervisor):
 
         # TEMP FOR ERROR CHECKING TODO
         self.tries = 0
-        self.batch_tick_subs = 0
 
         self.min_max_set = False
         self.min_batch = 0
         self.max_batch = 0
-
 
         self.state_changer()
         self.notify_of_an_action(self.current_action)
@@ -489,6 +488,7 @@ class Module(Supervisor):
                     exit(11)
 
                 self.episode_reward += self.reward
+                self.episode_rewards.append(self.reward)
                 self.episode_mean_action.append(self.mean_action)
                 self.prev_episode_mean_action.append(self.prev_mean_action)
 
@@ -502,7 +502,7 @@ class Module(Supervisor):
                     ReplayMemory_EpisodeBuffer[EPISODE-1] = {"min": self.min_batch,
                                                              "max": self.max_batch}
 
-                    replay_buf_reward.put(np.array(self.episode_reward))
+                    replay_buf_reward.put(np.array(self.episode_rewards))
                     replay_buf_state.put(np.array(self.episode_mean_action))
                     replay_buf_state_.put(np.array(self.prev_episode_mean_action))
                     replay_buf_action.put(np.array(self.episode_current_action))
@@ -520,7 +520,7 @@ class Module(Supervisor):
                     # self.loss = self.agent.optimize()
 
                 # batch is at least at the minimal working size
-                if self.batch_ticks > BATCH_SIZE:
+                if self.batch_ticks >= BATCH_SIZE:
                     # run the NN and collect loss
                     self.loss = self.agent.optimize(batch=True)
                     self.batch_ticks = 0
@@ -615,7 +615,9 @@ if __name__ == '__main__':
         module.learn()
         module.t += module.timeStep / 1000.0
         TOTAL_ELAPSED_TIME += module.timeStep / 1000.0
-        if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
+        # TODO: play around with TOTAL_ELAPSED_TIME
+        # if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
+        if 0 <= TOTAL_ELAPSED_TIME % 30 <= 1:
             if not assign_:
                 EPISODE += 1
 
