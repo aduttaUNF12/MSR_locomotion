@@ -26,9 +26,13 @@ T = 0.1
 # BATCH_SIZE = 64
 BATCH_SIZE = 5
 MAX_EPISODE = 5000
+EPISODE_LIMIT = 200   # Limiting Replay Memory to 200 Episodes
+# EPISODE_LIMIT = 5   # Limiting Replay Memory to 200 Episodes
 # MEMORY_CAPACITY = 10**10
 # MEMORY_CAPACITY = 2**30
-MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577 of data we would only need just over 3 mil spots, so this should work and optimize things a bit
+# MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577
+#                       of data we would only need just over 3 mil spots, so this should work and optimize things a bit
+MEMORY_CAPACITY = 10**6  # 1M in memory allocation
 # MEMORY_CAPACITY = 2**20
 # MAX_EPISODE = 10
 UPDATE_PERIOD = 10
@@ -47,7 +51,7 @@ Transition = namedtuple('Transition',
 
 BASE_LOGS_FOLDER = None
 
-
+REPLAY_MEMORY_EPISODE = 1
 ReplayMemory_EpisodeBuffer = {}
 
 
@@ -68,7 +72,6 @@ class ReplayBuffer:
             data to add
         """
         head = self.head
-        # n = len(data)
         n = data.size
         if head + n <= self.capacity:
             self.buffer[head:head+n] = data
@@ -209,11 +212,9 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
-    # def learn(self):
     def optimize(self, batch=False):
         policy_net.optimizer.zero_grad()
 
-        #
         episodes = range(len(ReplayMemory_EpisodeBuffer))[1:]
         if len(ReplayMemory_EpisodeBuffer) >= BATCH_SIZE and batch is True:
             sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
@@ -349,6 +350,7 @@ class Module(Supervisor):
         self.min_max_set = False
         self.min_batch = 0
         self.max_batch = 0
+        self.recycles = 0
 
         self.state_changer()
         self.notify_of_an_action(self.current_action)
@@ -469,6 +471,8 @@ class Module(Supervisor):
             self.act.func()
 
         elif self.t < T:
+            global REPLAY_MEMORY_EPISODE
+
             # get new position
             self.new_pos = self.gps.getValues()
             # calculate the reward
@@ -497,26 +501,55 @@ class Module(Supervisor):
                 # If Episode changed
                 if EPISODE > self.prev_episode:
 
+                    # if REPLAY_MEMORY_EPISODE % EPISODE_LIMIT == 0 and self.bot_id == LEADER_ID:
+                    #     with open("episode_logger.txt", "a") as fin:
+                    #         fin.write(f"Recycles: {self.recycles}\n")
+                    #         fin.write(f"Replay_buf_reward 1: {replay_buf_reward.buffer[ReplayMemory_EpisodeBuffer[1]['min']:ReplayMemory_EpisodeBuffer[1]['min']+20]}\n")
+                    #         fin.write(f"Replay_buf_reward 2: {replay_buf_reward.buffer[ReplayMemory_EpisodeBuffer[2]['min']:ReplayMemory_EpisodeBuffer[2]['min']+20]}\n")
+                    #         fin.write(f"Replay_buf_reward 3: {replay_buf_reward.buffer[ReplayMemory_EpisodeBuffer[3]['min']:ReplayMemory_EpisodeBuffer[3]['min']+20]}\n")
+                    #         fin.write("##################################################################\n")
+
                     self.max_batch = replay_buf_state.return_buffer_len
                     self.min_max_set = False
-                    ReplayMemory_EpisodeBuffer[EPISODE-1] = {"min": self.min_batch,
-                                                             "max": self.max_batch}
+
+
+
+                    # Since Episode 1 usually is 1 less than all other episodes
+                    if EPISODE - 1 == 1:
+                        ReplayMemory_EpisodeBuffer[REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
+                                                                 "max": self.max_batch + 1}
+                    else:
+                        ReplayMemory_EpisodeBuffer[REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
+                                                                 "max": self.max_batch}
 
                     replay_buf_reward.put(np.array(self.episode_rewards))
                     replay_buf_state.put(np.array(self.episode_mean_action))
                     replay_buf_state_.put(np.array(self.prev_episode_mean_action))
                     replay_buf_action.put(np.array(self.episode_current_action))
 
+                    if REPLAY_MEMORY_EPISODE == EPISODE_LIMIT:
+                        replay_buf_action.clear()
+                        replay_buf_state_.clear()
+                        replay_buf_reward.clear()
+                        replay_buf_state.clear()
+                        REPLAY_MEMORY_EPISODE = 0
+                        self.min_batch = 0
+                        self.max_batch = 0
+                        replay_buf_state.return_buffer_len = 0
+                        self.recycles += 1
+
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
 
                     self.episode_reward = 0
+                    self.episode_rewards.clear()
                     self.episode_mean_action.clear()
                     self.prev_episode_mean_action.clear()
                     self.episode_current_action.clear()
                     self.prev_episode = EPISODE
                     self.batch_ticks += 1
+                    REPLAY_MEMORY_EPISODE += 1
                     # self.loss = self.agent.optimize()
 
                 # batch is at least at the minimal working size
