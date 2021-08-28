@@ -3,6 +3,7 @@ import random
 import struct
 import sys
 import os
+import itertools
 from collections import namedtuple
 from datetime import date
 
@@ -14,7 +15,7 @@ import torch.optim as optim
 from controller import Supervisor
 
 
-__version__ = '08.07.21'
+__version__ = '08.28.21'
 
 
 # Constants
@@ -24,15 +25,17 @@ MIN_EPSILON = 0.1
 T = 0.1
 # BATCH_SIZE = 128
 # BATCH_SIZE = 64
-BATCH_SIZE = 5
+# BATCH_SIZE = 5
+# BATCH_SIZE = 2
+BATCH_SIZE = 32
 MAX_EPISODE = 5000
-EPISODE_LIMIT = 200   # Limiting Replay Memory to 200 Episodes
+# EPISODE_LIMIT = 200   # Limiting Replay Memory to 200 Episodes
 # EPISODE_LIMIT = 5   # Limiting Replay Memory to 200 Episodes
 # MEMORY_CAPACITY = 10**10
 # MEMORY_CAPACITY = 2**30
-# MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577
+MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577
 #                       of data we would only need just over 3 mil spots, so this should work and optimize things a bit
-MEMORY_CAPACITY = 10**6  # 1M in memory allocation
+# MEMORY_CAPACITY = 10**6  # 1M in memory allocation
 # MEMORY_CAPACITY = 2**20
 # MAX_EPISODE = 10
 UPDATE_PERIOD = 10
@@ -101,7 +104,12 @@ replay_buf_reward = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.float64)
 replay_buf_action = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.int32)
 replay_buf_state = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.float64)
 replay_buf_state_ = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.float64)
-
+replay_buf_mean_action = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.float64)
+#  TODO: possibly rework these \/
+Replay_Buf_Vector_States = []
+Replay_Buf_Vector_States_ = []
+Replay_Buf_Vector_Mean_Actions = []
+Replay_Buf_Vector_Mean_Actions_ = []
 
 class Action:
     def __init__(self, name, function):
@@ -118,19 +126,16 @@ class CNN(nn.Module):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
 
-        # self.conv1 = nn.Conv2d(1, n_actions, kernel_size=3).to(self.device)
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=(3, 1)).to(self.device)
+        self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
         self.bn1 = nn.BatchNorm2d(32).to(self.device)
 
-        # self.conv2 = nn.Conv2d(n_actions, number_of_modules*n_actions, kernel_size=3).to(self.device)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=(3, 1)).to(self.device)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(1, 1)).to(self.device)
         self.bn2 = nn.BatchNorm2d(64).to(self.device)
 
-        # self.conv3 = nn.Conv2d(number_of_modules*n_actions, number_of_modules*n_actions*5, kernel_size=3).to(self.device)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=(3, 1)).to(self.device)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(1, 1)).to(self.device)
         self.bn3 = nn.BatchNorm2d(128).to(self.device)
 
-        x = torch.rand((64, 1)).to(self.device).view(-1, 1, 64, 1)
+        x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
 
         self._to_linear = None
         self.convs(x)
@@ -174,7 +179,6 @@ policy_net = CNN(NUM_MODULES, 0.001, 3)
 class Agent:
     # policy_net = does all of the training and tests
     # target_net = final network
-    # TODO: look into masking
 
     def __init__(self, module_number, number_of_modules, n_actions, lr, alpha=0.99,
                  epsilon=1, eps_dec=1e-5, eps_min=0.01):
@@ -198,8 +202,11 @@ class Agent:
     # Greedy action selection
     def choose_action(self, module_actions):
         if random.random() < (1 - self.epsilon):
-            temp = torch.full((64, ), module_actions, dtype=torch.float).view(-1, 1, 64, 1).to(policy_net.device)
-            action = policy_net.forward(temp)
+            # make list of lists into a single list, and turn it into numpy array
+            temp_ = np.array(list(itertools.chain(*module_actions)))
+            # [temp_]*32 is needed to fit into the Conv2d (just makes a list of lists of temp_)
+            payload = torch.tensor([temp_]*32, dtype=torch.float).to(policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            action = policy_net.forward(payload)
             return [np.argmax(action.to('cpu').detach().numpy())]
         else:
             action = np.random.choice(self.action_space, 1)
@@ -215,7 +222,9 @@ class Agent:
     def optimize(self, batch=False):
         policy_net.optimizer.zero_grad()
 
+        # get the current amount of Episodes
         episodes = range(len(ReplayMemory_EpisodeBuffer))[1:]
+        # Not necessary, but was used to testing running optimizer after every Episode as well as a batch (NOT USED)
         if len(ReplayMemory_EpisodeBuffer) >= BATCH_SIZE and batch is True:
             sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
         else:
@@ -231,34 +240,59 @@ class Agent:
             if ReplayMemory_EpisodeBuffer[s]['max'] - ReplayMemory_EpisodeBuffer[s]['min'] > 576:
                 sub = ReplayMemory_EpisodeBuffer[s]['max'] - ReplayMemory_EpisodeBuffer[s]['min'] - 576
                 ReplayMemory_EpisodeBuffer[s]['max'] = ReplayMemory_EpisodeBuffer[s]['max'] - sub
+            # make a list of numbers from min to max and add that list to ranges list (each list contains
+            #   actions taken during the Episode
             ranges.append(np.arange(ReplayMemory_EpisodeBuffer[s]['min'],
                                     ReplayMemory_EpisodeBuffer[s]['max']))
+
         del sample
 
         state_action_values = []
         expected_state_action_values = []
+        # iterates over the array of range arrays,  index1 is the id of the range array, r is the array or ranges
         for index1, r in enumerate(ranges):
+            # pull values corresponding to the r range
             temp_action = replay_buf_action.get(r)
-            temp_states = replay_buf_state.get(r)
-            temp_states_ = replay_buf_state_.get(r)
             temp_rewards = replay_buf_reward.get(r)
 
-            for index2, item in enumerate(temp_states):
-                res = policy_net(torch.full((64, ), item, dtype=torch.float, requires_grad=True).view(-1, 1, 64, 1).to(policy_net.device))
-                res = res.to('cpu')
-                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(policy_net.device))
-                del res
-            del item, index2
+            # iterates over the r, index2 is the id of the item in r, and item is the entry in the list
+            for index2, item in enumerate(r):
+                # get the list of state vectors
+                robot_state_vectors = Replay_Buf_Vector_States[item][0:NUM_MODULES]
+                # add corresponding mean action
+                robot_state_vectors.append(Replay_Buf_Vector_Mean_Actions[item])
+                # convert a list of lists into a single list
+                temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
+                payload = torch.tensor([temp_]*32, dtype=torch.float).to(policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
 
-            for index3, item in enumerate(temp_states_):
-                res = self.target_net(torch.full((64, ), item, dtype=torch.float, requires_grad=False).view(-1, 1, 64, 1).to(self.target_net.device))
+                res = policy_net(payload.to(policy_net.device))
+                res = res.to('cpu')
+                # res[temp_action[index2]] = select the estimate value form the res list which corresponds to an
+                #   action of at the same index; adds the value in tensor form to the state_action_values
+                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(policy_net.device))
+
+                del res
+
+            for index3, item in enumerate(r):
+                # get the list of state vectors
+                robot_state_vectors_ = Replay_Buf_Vector_States_[item][0:NUM_MODULES]
+                # add corresponding mean action
+                robot_state_vectors_.append(Replay_Buf_Vector_Mean_Actions_[item])
+                # convert a list of lists into a single list
+                temp_ = np.array(list(itertools.chain(*robot_state_vectors_)))
+
+                payload = torch.tensor([temp_]*32, dtype=torch.float, requires_grad=False).to(self.target_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+                res = self.target_net(payload)
+                # get the position of the largest estimate in the res list, multiplies it by alpha and
+                #   adds reward associated with this action in a given Episode
                 expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.alpha) + temp_rewards[index3])
                 del res
 
             del item
-
+        # torch.stack([tensor]) combines all tensors in a list into a single tensor
         state_action_values = torch.stack(state_action_values)
         state_action_values = state_action_values.double().float()
+
         expected_state_action_values = torch.stack(expected_state_action_values).double().float()
 
         loss = policy_net.loss(state_action_values, expected_state_action_values)
@@ -266,7 +300,6 @@ class Agent:
         policy_net.optimizer.step()
         self.decrement_epsilon()
 
-        # if EPISODE % UPDATE_PERIOD == 0 and self.updated is False or batch is True:
         if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
             self.target_net.load_state_dict(policy_net.state_dict())
@@ -302,6 +335,7 @@ class Module(Supervisor):
         self.gps.enable(self.timeStep)
 
         self.emitter = self.getDevice("emitter")
+
         self.receiver = self.getDevice("receiver")
         self.receiver.enable(self.timeStep)
 
@@ -310,8 +344,10 @@ class Module(Supervisor):
         # making all modules have NN
         self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, alpha=ALPHA,
                            epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON)
-        self.receiver.setChannel(0)
-        self.emitter.setChannel(0)
+
+        self.receiver.setChannel(5)
+
+        self.emitter.setChannel(5)
 
         self.actions = [
             Action("Up", self.action_up),
@@ -328,7 +364,14 @@ class Module(Supervisor):
         self.calc_reward()
 
         self.global_actions = [1]*NUM_MODULES
+        self.global_states = [1]*NUM_MODULES
+        self.global_states_vectors = []
+        self.global_actions_vectors = []
+        #  TODO: change mean action to a vector representation
+        self.mean_action_vector = []
         self.mean_action = 0
+        self.prev_states_vector = []
+        self.prev_mean_action_vector = []
         self.prev_mean_action = 0
         """
         states:  0 - min
@@ -339,6 +382,8 @@ class Module(Supervisor):
         self.current_state = 1
         self.prev_state = self.current_state
         self.act = None
+        self.sts = None
+
 
         # getting leader to decide initial actions
         self.current_action = np.random.choice([i for i in range(3)], 1)[0]
@@ -354,14 +399,25 @@ class Module(Supervisor):
 
         self.state_changer()
         self.notify_of_an_action(self.current_action)
+        # self.notify_of_an_action(self.current_state, action=False)
 
     # notify other modules of the chosen action
-    def notify_of_an_action(self, state):
+    # if action is True means that an action is being transmitted, if False current state is being transmitted
+    def notify_of_an_action(self, state, action=True):
         message = struct.pack("i", self.bot_id)
+        if action:
+            # 1 if sending action
+            self.global_actions[self.bot_id-1] = state
+            message += struct.pack("i", 0)
+        else:
+            # 2 if sending state
+            self.global_states[self.bot_id-1] = state
+            message += struct.pack("i", 1)
+
         message += struct.pack("i", state)
 
-        self.global_actions[self.bot_id-1] = state
         ret = self.emitter.send(message)
+
         if ret == 1:
             pass
         elif ret == 0:
@@ -371,18 +427,26 @@ class Module(Supervisor):
             print(f"[*] {self.bot_id} - error while sending data")
             exit(123)
 
-        self.self_message = message
+        # self.self_message = message
 
     # gets actions which were sent by the leader
+    # if action is True means that an action is being received, if False current state is being received
     def get_other_module_actions(self):
         if self.receiver.getQueueLength() > 0:
             while self.receiver.getQueueLength() > 0:
                 message = self.receiver.getData()
-                data = struct.unpack("i" + "i", message)
-                self.global_actions[data[0]-1] = data[1]
+                # data = [bot id, action/state flag, payload]
+                data = struct.unpack("i" + "i" + "i", message)
+                # print(f"[{self.bot_id}] got emitter packet: {data}", file=sys.stderr)
+
+                if data[1] == 0:
+                    self.global_actions[data[0]-1] = data[2]
+                else:
+                    self.global_states[data[0]-1] = data[2]
+
                 self.receiver.nextPacket()
         else:
-            print("Error: no packets in receiver queue.")
+            # print(f"[{self.bot_id}] Error: no packets in receiver queue.")
             return 2
 
     def action_up(self):
@@ -425,12 +489,56 @@ class Module(Supervisor):
             print(f"[{self.bot_id}]  Error with state_changer !!!!!!!!!!", file=sys.stderr)
             exit(2)
 
+    # Converts global_actions (actions of all of the modules in the chain) into a vector representation
+    def actions_to_vectors(self):
+        # adds vector representation of the state to an array, [x, y, z]
+        for action in self.global_actions:
+            if int(action) == 1:
+                self.global_actions_vectors.append([0, 0, 0])
+            elif int(action) == 0:
+                self.global_actions_vectors.append([0, -1, 0])
+            elif int(action) == 2:
+                self.global_actions_vectors.append([0, 1, 0])
+            else:
+                print(f"[{self.bot_id}] Error with state_to_vectors !!!!!!!!!!!!!", file=sys.stderr)
+                exit(2)
+
+        self.calc_mean_action_vector()
+        self.global_actions_vectors = []
+
+    # Converts global states to vector form
+    def states_to_vectors(self):
+        """
+       states:  0 - min
+                1 - zero
+                2 - max
+       """
+        # adds vector representation of the state to an array, [Down, Neutral, Up]
+        # reasoning for line 517 is calc_mean_action_vector()
+        Replay_Buf_Vector_States_.append(self.prev_states_vector[0:NUM_MODULES] if len(self.prev_states_vector) >= NUM_MODULES else [[0, 0, 0]]*NUM_MODULES)
+
+        self.global_states_vectors = []
+        for state in self.global_states:
+            if int(state) == 1:
+                self.global_states_vectors.append([0, 0, 0])
+            elif int(state) == 0:
+                self.global_states_vectors.append([1, 0, 0])
+            elif int(state) == 2:
+                self.global_states_vectors.append([0, 0, 1])
+            else:
+                print(f"[{self.bot_id}] Error with state_to_vectors !!!!!!!!!!!!!", file=sys.stderr)
+                exit(2)
+
+        # for some reason there is an extra [0] array at the end
+        Replay_Buf_Vector_States.append(self.global_states_vectors[0:(NUM_MODULES)])
+
     # Loops through NUM_MODULES+1 (since there is no module 0), sums actions of all modules except for current
     # divides by the total number of modules
     def calc_mean_action(self):
         a = 0
-        for m in range(NUM_MODULES + 1):
-            if m != self.bot_id:
+        for m in range(NUM_MODULES):
+            # self.bot_id - 1 since bot ids start with 1 while arrays with index of 0
+            if m != (self.bot_id - 1):
                 try:
                     a += self.global_actions[m]
                 except IndexError:
@@ -440,6 +548,27 @@ class Module(Supervisor):
         self.mean_action = a / (NUM_MODULES - 1)
         # logger(mean_action=self.mean_action, a=a)
         # self.mean_action_rounder()
+
+    # Calculates the mean of the action vectors
+    def calc_mean_action_vector(self):
+        # Making a base vector the shape of (1, NUM_MODULES)
+        a = [0]*NUM_MODULES
+        # add previous mean action vector to the buffer
+        #   if previous mean action vector has size greater than/equal to number of modules, this means that either
+        #   previous mean action vector has more values than actions so limit the input to only the first NUM_MODULES
+        #   actions; else the previous mean action vector is just being initialized so fill with 0 vectors
+        Replay_Buf_Vector_Mean_Actions_.append(self.prev_mean_action_vector[0:NUM_MODULES] if len(self.prev_mean_action_vector) >= NUM_MODULES else [0]*NUM_MODULES)
+        for m in range(NUM_MODULES):
+            # self.bot_id - 1 since bot ids start with 1 while arrays with index of 0
+            if m != (self.bot_id - 1):
+                try:
+                    a = np.add(a, self.global_actions_vectors[m])
+                except IndexError:
+                    pass
+        self.prev_mean_action_vector = self.mean_action_vector
+        # NUM_MODULE - 1 since we are taking a mean of all except current modules
+        self.mean_action_vector = np.true_divide(a, (NUM_MODULES - 1))
+        Replay_Buf_Vector_Mean_Actions.append(self.mean_action_vector[0:NUM_MODULES])
 
     # Takes mean_action and rounds it down
     def mean_action_rounder(self):
@@ -462,17 +591,37 @@ class Module(Supervisor):
                     exit(11)
                 self.tries += 1
                 return
+            # print(f"[{self.bot_id}] got all of the actions: {self.global_actions}", file=sys.stderr)
+            self.tries = 0
             # select an action corresponding to the current_action number
             self.act = self.actions[self.current_action]
-            self.calc_mean_action()
+            # self.calc_mean_action()
+            self.actions_to_vectors()
+            self.calc_mean_action_vector()
+
+            self.notify_of_an_action(self.current_state, action=False)
+
+        if self.sts is None:
+            # print(f"[{self.bot_id}] inside self.sts None", file=sys.stderr)
+
+            ret = self.get_other_module_actions()
+            if ret == 2:
+                if self.tries > 100:
+                    print("Error with tries")
+                    exit(11)
+                self.tries += 1
+                return
+
+            # print(f"[{self.bot_id}] got all of the states: {self.global_states}", file=sys.stderr)
+            self.tries = 0
+            self.sts = 1
+            self.states_to_vectors()
 
         elif self.t + (self.timeStep / 1000.0) < T:
             # carry out a function
             self.act.func()
 
         elif self.t < T:
-            global REPLAY_MEMORY_EPISODE
-
             # get new position
             self.new_pos = self.gps.getValues()
             # calculate the reward
@@ -501,55 +650,29 @@ class Module(Supervisor):
                 # If Episode changed
                 if EPISODE > self.prev_episode:
 
-                    # if REPLAY_MEMORY_EPISODE % EPISODE_LIMIT == 0 and self.bot_id == LEADER_ID:
-                    #     with open("episode_logger.txt", "a") as fin:
-                    #         fin.write(f"Recycles: {self.recycles}\n")
-                    #         fin.write(f"Replay_buf_reward 1: {replay_buf_reward.buffer[ReplayMemory_EpisodeBuffer[1]['min']:ReplayMemory_EpisodeBuffer[1]['min']+20]}\n")
-                    #         fin.write(f"Replay_buf_reward 2: {replay_buf_reward.buffer[ReplayMemory_EpisodeBuffer[2]['min']:ReplayMemory_EpisodeBuffer[2]['min']+20]}\n")
-                    #         fin.write(f"Replay_buf_reward 3: {replay_buf_reward.buffer[ReplayMemory_EpisodeBuffer[3]['min']:ReplayMemory_EpisodeBuffer[3]['min']+20]}\n")
-                    #         fin.write("##################################################################\n")
-
                     self.max_batch = replay_buf_state.return_buffer_len
                     self.min_max_set = False
-
-
-
-                    # Since Episode 1 usually is 1 less than all other episodes
-                    if EPISODE - 1 == 1:
-                        ReplayMemory_EpisodeBuffer[REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
-                                                                 "max": self.max_batch + 1}
-                    else:
-                        ReplayMemory_EpisodeBuffer[REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
-                                                                 "max": self.max_batch}
+                    ReplayMemory_EpisodeBuffer[EPISODE-1] = {"min": self.min_batch,
+                                                             "max": self.max_batch}
 
                     replay_buf_reward.put(np.array(self.episode_rewards))
-                    replay_buf_state.put(np.array(self.episode_mean_action))
-                    replay_buf_state_.put(np.array(self.prev_episode_mean_action))
-                    replay_buf_action.put(np.array(self.episode_current_action))
+                    replay_buf_state.put(np.array(self.current_state))
 
-                    if REPLAY_MEMORY_EPISODE == EPISODE_LIMIT:
-                        replay_buf_action.clear()
-                        replay_buf_state_.clear()
-                        replay_buf_reward.clear()
-                        replay_buf_state.clear()
-                        REPLAY_MEMORY_EPISODE = 0
-                        self.min_batch = 0
-                        self.max_batch = 0
-                        replay_buf_state.return_buffer_len = 0
-                        self.recycles += 1
+                    replay_buf_mean_action.put(np.array(self.episode_mean_action))
+
+                    replay_buf_state_.put(np.array(self.prev_state))
+                    replay_buf_action.put(np.array(self.episode_current_action))
 
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
 
                     self.episode_reward = 0
-                    self.episode_rewards.clear()
                     self.episode_mean_action.clear()
                     self.prev_episode_mean_action.clear()
                     self.episode_current_action.clear()
                     self.prev_episode = EPISODE
                     self.batch_ticks += 1
-                    REPLAY_MEMORY_EPISODE += 1
                     # self.loss = self.agent.optimize()
 
                 # batch is at least at the minimal working size
@@ -558,10 +681,15 @@ class Module(Supervisor):
                     self.loss = self.agent.optimize(batch=True)
                     self.batch_ticks = 0
 
-            # TODO: change to neighbor modules later on
             # set previous action option to the new one
             self.prev_actions = self.current_action
-            self.current_action = self.agent.choose_action(self.mean_action)[0]
+            # get the array of state vectors
+            robot_state_vectors = self.global_states_vectors[0:NUM_MODULES]
+            robot_state_vectors.append(self.mean_action_vector)
+
+            self.current_action = self.agent.choose_action(robot_state_vectors)[0]
+            self.prev_states_vector = self.global_states_vectors
+            self.global_states_vectors = []
             # run the action and change the state
             self.state_changer()
             # notify others of current action
@@ -569,6 +697,7 @@ class Module(Supervisor):
 
         else:
             self.act = None
+            self.sts = None
             self.old_pos = self.gps.getValues()
             self.t = 0
 
@@ -648,9 +777,9 @@ if __name__ == '__main__':
         module.learn()
         module.t += module.timeStep / 1000.0
         TOTAL_ELAPSED_TIME += module.timeStep / 1000.0
-        # TODO: play around with TOTAL_ELAPSED_TIME
-        # if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
-        if 0 <= TOTAL_ELAPSED_TIME % 30 <= 1:
+        if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
+        # if 0 <= TOTAL_ELAPSED_TIME % 30 <= 1:
+        # if 0 <= TOTAL_ELAPSED_TIME % 5 <= 1:
             if not assign_:
                 EPISODE += 1
 
@@ -671,6 +800,9 @@ if __name__ == '__main__':
             end = time.time()
             if module.bot_id == LEADER_ID:
                 print(f"Avg time per episode: {float(sum(episode_lens)/len(episode_lens))} sec")
-                print(f"Runtime: {end - start_time}")
+                temp = end - start_time
+                print(f"Runtime: {temp} secs")
+                print(f"Runtime: {temp/60} mins")
+                print(f"Runtime: {temp/60/60} hours")
                 print("LOGGING OFF")
             exit()
