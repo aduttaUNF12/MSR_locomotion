@@ -20,22 +20,25 @@ __version__ = '08.28.21'
 
 # Constants
 EPSILON = 1
-ALPHA = 0.1
+GAMMA = 0.1
 MIN_EPSILON = 0.1
 T = 0.1
 # BATCH_SIZE = 128
 # BATCH_SIZE = 64
 # BATCH_SIZE = 5
 # BATCH_SIZE = 2
-BATCH_SIZE = 32
+# BATCH_SIZE = 32
+BATCH_SIZE = 10
 MAX_EPISODE = 5000
 # EPISODE_LIMIT = 200   # Limiting Replay Memory to 200 Episodes
+# EPISODE_LIMIT = 50   # Limiting Replay Memory to 200 Episodes
+EPISODE_LIMIT = 12   # Limiting Replay Memory to 200 Episodes
 # EPISODE_LIMIT = 5   # Limiting Replay Memory to 200 Episodes
 # MEMORY_CAPACITY = 10**10
 # MEMORY_CAPACITY = 2**30
-MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577
+# MEMORY_CAPACITY = 2**22  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577
 #                       of data we would only need just over 3 mil spots, so this should work and optimize things a bit
-# MEMORY_CAPACITY = 10**6  # 1M in memory allocation
+MEMORY_CAPACITY = 10**6  # 1M in memory allocation
 # MEMORY_CAPACITY = 2**20
 # MAX_EPISODE = 10
 UPDATE_PERIOD = 10
@@ -53,6 +56,9 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 BASE_LOGS_FOLDER = None
+NN_TYPE = None
+POLICY_NET = None
+TARGET_NET = None
 
 REPLAY_MEMORY_EPISODE = 1
 ReplayMemory_EpisodeBuffer = {}
@@ -172,7 +178,29 @@ class CNN(nn.Module):
         return x[0]
 
 
-policy_net = CNN(NUM_MODULES, 0.001, 3)
+class FCNN(nn.Module):
+    def __init__(self, number_of_modules, lr, n_actions):
+        super(FCNN, self).__init__()
+        self.number_of_modules = number_of_modules
+        self.n_actions = n_actions
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)  # send network to device
+
+        self.fc1 = nn.Linear(3*(number_of_modules + 1), 32).to(self.device)
+        self.fc2 = nn.Linear(32, 64).to(self.device)
+        self.fc3 = nn.Linear(64, self.n_actions).to(self.device)
+
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.loss = nn.MSELoss()
+
+    def forward(self, actions):
+        x = F.relu(self.fc1(actions))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x[0]
+
+
+# policy_net = CNN(NUM_MODULES, 0.001, 3)
 # agent who controls NN, in this case the main module (module 1)
 
 
@@ -180,13 +208,13 @@ class Agent:
     # policy_net = does all of the training and tests
     # target_net = final network
 
-    def __init__(self, module_number, number_of_modules, n_actions, lr, alpha=0.99,
+    def __init__(self, module_number, number_of_modules, n_actions, lr, gamma=0.99,
                  epsilon=1, eps_dec=1e-5, eps_min=0.01):
         self.module_number = module_number   # only used for logging
         self.number_of_modules = number_of_modules
         self.n_actions = n_actions
         self.lr = lr
-        self.alpha = alpha
+        self.gamma = gamma
         self.epsilon = epsilon
         self.eps_dec = eps_dec
         self.eps_min = eps_min
@@ -195,9 +223,20 @@ class Agent:
         self.action_space = [i for i in range(self.n_actions)]
 
         # q estimate
-        self.target_net = CNN(self.number_of_modules, self.lr, n_actions)
-        self.target_net.load_state_dict(policy_net.state_dict())
+        # self.target_net = CNN(self.number_of_modules, self.lr, n_actions)
+        self.policy_net = POLICY_NET
+        # self.target_net = NET_TYPE(self.number_of_modules, self.lr, n_actions)
+        self.target_net = TARGET_NET
+        self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
+
+    @staticmethod
+    def payload_maker(temp_):
+        if NN_TYPE == "FCNN":
+            payload = torch.tensor([temp_], dtype=torch.float).to(POLICY_NET.device)
+        else:
+            payload = torch.tensor([temp_]*32, dtype=torch.float).to(POLICY_NET.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+        return payload
 
     # Greedy action selection
     def choose_action(self, module_actions):
@@ -205,8 +244,12 @@ class Agent:
             # make list of lists into a single list, and turn it into numpy array
             temp_ = np.array(list(itertools.chain(*module_actions)))
             # [temp_]*32 is needed to fit into the Conv2d (just makes a list of lists of temp_)
-            payload = torch.tensor([temp_]*32, dtype=torch.float).to(policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
-            action = policy_net.forward(payload)
+            # if NN_TYPE == "FCNN":
+            #     payload = torch.tensor([temp_], dtype=torch.float).to(POLICY_NET.device)
+            # else:
+            #     payload = torch.tensor([temp_]*32, dtype=torch.float).to(POLICY_NET.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            payload = self.payload_maker(temp_)
+            action = self.policy_net.forward(payload)
             return [np.argmax(action.to('cpu').detach().numpy())]
         else:
             action = np.random.choice(self.action_space, 1)
@@ -220,7 +263,7 @@ class Agent:
             self.epsilon = self.eps_min
 
     def optimize(self, batch=False):
-        policy_net.optimizer.zero_grad()
+        self.policy_net.optimizer.zero_grad()
 
         # get the current amount of Episodes
         episodes = range(len(ReplayMemory_EpisodeBuffer))[1:]
@@ -250,6 +293,13 @@ class Agent:
         state_action_values = []
         expected_state_action_values = []
         # iterates over the array of range arrays,  index1 is the id of the range array, r is the array or ranges
+
+        if self.module_number == LEADER_ID:
+            print(f"Inside of the optimizer\nvector sizes:\nstates: {len(Replay_Buf_Vector_States)}\n"
+                  f"States_: {len(Replay_Buf_Vector_States_)}\n"
+                  f"Mean_Actions: {len(Replay_Buf_Vector_Mean_Actions)}\n"
+                  f"Mean_Actions_: {len(Replay_Buf_Vector_Mean_Actions_)}\n")
+
         for index1, r in enumerate(ranges):
             # pull values corresponding to the r range
             temp_action = replay_buf_action.get(r)
@@ -263,14 +313,31 @@ class Agent:
                 robot_state_vectors.append(Replay_Buf_Vector_Mean_Actions[item])
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
-                payload = torch.tensor([temp_]*32, dtype=torch.float).to(policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
-
-                res = policy_net(payload.to(policy_net.device))
+                # if self.module_number == LEADER_ID:
+                #     print(f"temp_: {temp_}")
+                # if NN_TYPE == "FCNN":
+                #     payload = torch.tensor([temp_], dtype=torch.float).to(POLICY_NET.device)
+                # else:
+                #     payload = torch.tensor([temp_]*32, dtype=torch.float).to(POLICY_NET.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+                # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+                payload = self.payload_maker(temp_)
+                # if self.module_number == LEADER_ID:
+                #     print(f"payload: {payload}")
+                res = self.policy_net(payload.to(self.policy_net.device))
+                # if self.module_number == LEADER_ID:
+                #     print(f"res: {res}")
+                # exit(111)
                 res = res.to('cpu')
                 # res[temp_action[index2]] = select the estimate value form the res list which corresponds to an
                 #   action of at the same index; adds the value in tensor form to the state_action_values
-                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(policy_net.device))
+                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(self.policy_net.device))
 
+                # try:
+                #     state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(self.policy_net.device))
+                # except IndexError:
+                #     if self.module_number == LEADER_ID:
+                #         print(f"Got index Error\nranges: {ranges}\nr: {r}\nres: {res}\ntemp_action {temp_action}\nindex 2 {index2}")
+                #     exit(111)
                 del res
 
             for index3, item in enumerate(r):
@@ -281,28 +348,29 @@ class Agent:
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors_)))
 
-                payload = torch.tensor([temp_]*32, dtype=torch.float, requires_grad=False).to(self.target_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+                # payload = torch.tensor([temp_]*32, dtype=torch.float, requires_grad=False).to(self.target_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+                payload = self.payload_maker(temp_)
                 res = self.target_net(payload)
-                # get the position of the largest estimate in the res list, multiplies it by alpha and
+                # get the position of the largest estimate in the res list, multiplies it by gamma and
                 #   adds reward associated with this action in a given Episode
-                expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.alpha) + temp_rewards[index3])
+                expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.gamma) + temp_rewards[index3])
                 del res
-
             del item
+        # print("loops are over")
         # torch.stack([tensor]) combines all tensors in a list into a single tensor
         state_action_values = torch.stack(state_action_values)
         state_action_values = state_action_values.double().float()
 
         expected_state_action_values = torch.stack(expected_state_action_values).double().float()
 
-        loss = policy_net.loss(state_action_values, expected_state_action_values)
+        loss = self.policy_net.loss(state_action_values, expected_state_action_values)
         loss.backward()
-        policy_net.optimizer.step()
+        self.policy_net.optimizer.step()
         self.decrement_epsilon()
 
         if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{EPISODE}")
-            self.target_net.load_state_dict(policy_net.state_dict())
+            self.target_net.load_state_dict(self.policy_net.state_dict())
 
             if BASE_LOGS_FOLDER is not None:
                 torch.save(module.agent.target_net.state_dict(), os.path.join(BASE_LOGS_FOLDER, "agent.pt"))
@@ -342,7 +410,7 @@ class Module(Supervisor):
         self.motor = self.getDevice("motor")
 
         # making all modules have NN
-        self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, alpha=ALPHA,
+        self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, gamma=GAMMA,
                            epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON)
 
         self.receiver.setChannel(5)
@@ -391,6 +459,7 @@ class Module(Supervisor):
 
         # TEMP FOR ERROR CHECKING TODO
         self.tries = 0
+        self.batch_updated = False
 
         self.min_max_set = False
         self.min_batch = 0
@@ -649,23 +718,55 @@ class Module(Supervisor):
 
                 # If Episode changed
                 if EPISODE > self.prev_episode:
+                    global REPLAY_MEMORY_EPISODE
 
                     self.max_batch = replay_buf_state.return_buffer_len
                     self.min_max_set = False
                     ReplayMemory_EpisodeBuffer[EPISODE-1] = {"min": self.min_batch,
                                                              "max": self.max_batch}
 
+                    # Since Episode 1 usually is 1 less than all other episodes
+                    if EPISODE - 1 == 1:
+                        ReplayMemory_EpisodeBuffer[REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
+                                                                             "max": self.max_batch + 1}
+                    else:
+                        ReplayMemory_EpisodeBuffer[REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
+                                                                             "max": self.max_batch}
+
                     replay_buf_reward.put(np.array(self.episode_rewards))
                     replay_buf_state.put(np.array(self.current_state))
-
                     replay_buf_mean_action.put(np.array(self.episode_mean_action))
-
                     replay_buf_state_.put(np.array(self.prev_state))
                     replay_buf_action.put(np.array(self.episode_current_action))
+
+#                     if REPLAY_MEMORY_EPISODE == EPISODE_LIMIT:
+#                         replay_buf_action.clear()
+#                         replay_buf_state_.clear()
+#                         replay_buf_reward.clear()
+#                         replay_buf_state.clear()
+#                         replay_buf_mean_action.clear()
+#                         REPLAY_MEMORY_EPISODE = 0
+#                         self.min_batch = 0
+#                         self.max_batch = 0
+#                         replay_buf_state.return_buffer_len = 0
+#                         self.recycles += 1
+#
+#                         if self.bot_id == LEADER_ID:
+#                             """
+#                             Replay_Buf_Vector_States = []
+# Replay_Buf_Vector_States_ = []
+# Replay_Buf_Vector_Mean_Actions = []
+# Replay_Buf_Vector_Mean_Actions_ = []
+#                             """
+#                             print(f"after the limit\nrecycles: {self.recycles}\nvector sizes:\nstates: {len(Replay_Buf_Vector_States)}\n"
+#                                   f"States_: {len(Replay_Buf_Vector_States_)}\n"
+#                                   f"Mean_Actions: {len(Replay_Buf_Vector_Mean_Actions)}\n"
+#                                   f"Mean_Actions_: {len(Replay_Buf_Vector_Mean_Actions_)}\n")
 
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
+
 
                     self.episode_reward = 0
                     self.episode_mean_action.clear()
@@ -673,13 +774,17 @@ class Module(Supervisor):
                     self.episode_current_action.clear()
                     self.prev_episode = EPISODE
                     self.batch_ticks += 1
-                    # self.loss = self.agent.optimize()
+                    self.batch_updated = False
+                    REPLAY_MEMORY_EPISODE += 1
 
                 # batch is at least at the minimal working size
-                if self.batch_ticks >= BATCH_SIZE:
+                if self.batch_ticks >= BATCH_SIZE and not self.batch_updated:
                     # run the NN and collect loss
                     self.loss = self.agent.optimize(batch=True)
-                    self.batch_ticks = 0
+                    # if self.bot_id == LEADER_ID:
+                    #     print(f"loss: {self.loss}")
+                    self.batch_updated = True
+                    # self.batch_ticks = 0
 
             # set previous action option to the new one
             self.prev_actions = self.current_action
@@ -752,10 +857,26 @@ def logger(**kwargs):
         fin.write("\n")
 
 
+# TODO: add args and kwargs to main
 if __name__ == '__main__':
+    # TODO: for now the NN selector is a string variable
+    NN_TYPE = "FCNN"
+    # NN_TYPE = "CNN"
+
+    if NN_TYPE == "FCNN":
+        TARGET_NET = FCNN(NUM_MODULES, 0.001, 3)
+        POLICY_NET = FCNN(NUM_MODULES, 0.001, 3)
+        # print(f"At fcc: {TARGET_NET}   {POLICY_NET}")
+    elif NN_TYPE == "CNN":
+        TARGET_NET = CNN(NUM_MODULES, 0.001, 3)
+        POLICY_NET = CNN(NUM_MODULES, 0.001, 3)
+    else:
+        print("Enter the type of network to be used!!", file=sys.stderr)
+        exit(1)
+
     import time
     start_time = time.time()
-    print(f"Starting the training: {time.strftime('%H:%M:%S', time.localtime())}")
+    print(f"Starting the training ({NN_TYPE}) : {time.strftime('%H:%M:%S', time.localtime())}")
     eps_history = []
     filename = "null"
     module = Module()
@@ -799,6 +920,7 @@ if __name__ == '__main__':
         if EPISODE > MAX_EPISODE:
             end = time.time()
             if module.bot_id == LEADER_ID:
+                print(f"Ending training of {NN_TYPE}.")
                 print(f"Avg time per episode: {float(sum(episode_lens)/len(episode_lens))} sec")
                 temp = end - start_time
                 print(f"Runtime: {temp} secs")
