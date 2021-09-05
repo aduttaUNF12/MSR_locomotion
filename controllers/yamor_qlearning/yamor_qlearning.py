@@ -15,7 +15,7 @@ import torch.optim as optim
 from controller import Supervisor
 
 
-__version__ = '08.28.21'
+__version__ = '09.05.21'
 
 
 # Constants
@@ -27,12 +27,12 @@ T = 0.1
 # BATCH_SIZE = 64
 # BATCH_SIZE = 5
 # BATCH_SIZE = 2
-# BATCH_SIZE = 32
-BATCH_SIZE = 10
+BATCH_SIZE = 32
+# BATCH_SIZE = 10
 MAX_EPISODE = 5000
-# EPISODE_LIMIT = 200   # Limiting Replay Memory to 200 Episodes
+EPISODE_LIMIT = 200   # Limiting Replay Memory to 200 Episodes
 # EPISODE_LIMIT = 50   # Limiting Replay Memory to 200 Episodes
-EPISODE_LIMIT = 12   # Limiting Replay Memory to 200 Episodes
+# EPISODE_LIMIT = 12   # Limiting Replay Memory to 200 Episodes
 # EPISODE_LIMIT = 5   # Limiting Replay Memory to 200 Episodes
 # MEMORY_CAPACITY = 10**10
 # MEMORY_CAPACITY = 2**30
@@ -116,6 +116,10 @@ Replay_Buf_Vector_States = []
 Replay_Buf_Vector_States_ = []
 Replay_Buf_Vector_Mean_Actions = []
 Replay_Buf_Vector_Mean_Actions_ = []
+
+LAST_MEAN_ACTION_INDEX = 0
+LAST_STATE_INDEX = 0
+RE_ADJUST = False
 
 class Action:
     def __init__(self, name, function):
@@ -294,11 +298,11 @@ class Agent:
         expected_state_action_values = []
         # iterates over the array of range arrays,  index1 is the id of the range array, r is the array or ranges
 
-        if self.module_number == LEADER_ID:
-            print(f"Inside of the optimizer\nvector sizes:\nstates: {len(Replay_Buf_Vector_States)}\n"
-                  f"States_: {len(Replay_Buf_Vector_States_)}\n"
-                  f"Mean_Actions: {len(Replay_Buf_Vector_Mean_Actions)}\n"
-                  f"Mean_Actions_: {len(Replay_Buf_Vector_Mean_Actions_)}\n")
+        # if self.module_number == LEADER_ID:
+        #     print(f"Inside of the optimizer\nvector sizes:\nstates: {len(Replay_Buf_Vector_States)}\n"
+        #           f"States_: {len(Replay_Buf_Vector_States_)}\n"
+        #           f"Mean_Actions: {len(Replay_Buf_Vector_Mean_Actions)}\n"
+        #           f"Mean_Actions_: {len(Replay_Buf_Vector_Mean_Actions_)}\n")
 
         for index1, r in enumerate(ranges):
             # pull values corresponding to the r range
@@ -460,6 +464,7 @@ class Module(Supervisor):
         # TEMP FOR ERROR CHECKING TODO
         self.tries = 0
         self.batch_updated = False
+        self.re_adjust = False
 
         self.min_max_set = False
         self.min_batch = 0
@@ -582,9 +587,16 @@ class Module(Supervisor):
                 1 - zero
                 2 - max
        """
+        global LAST_STATE_INDEX
         # adds vector representation of the state to an array, [Down, Neutral, Up]
         # reasoning for line 517 is calc_mean_action_vector()
-        Replay_Buf_Vector_States_.append(self.prev_states_vector[0:NUM_MODULES] if len(self.prev_states_vector) >= NUM_MODULES else [[0, 0, 0]]*NUM_MODULES)
+        if self.re_adjust:
+            Replay_Buf_Vector_States_[LAST_STATE_INDEX] = self.prev_states_vector[0:NUM_MODULES] \
+                if len(self.prev_states_vector) >= NUM_MODULES else [[0, 0, ]*NUM_MODULES]
+        else:
+            Replay_Buf_Vector_States_.append(self.prev_states_vector[0:NUM_MODULES]
+                                             if len(self.prev_states_vector) >= NUM_MODULES
+                                             else [[0, 0, 0]]*NUM_MODULES)
 
         self.global_states_vectors = []
         for state in self.global_states:
@@ -599,7 +611,11 @@ class Module(Supervisor):
                 exit(2)
 
         # for some reason there is an extra [0] array at the end
-        Replay_Buf_Vector_States.append(self.global_states_vectors[0:(NUM_MODULES)])
+        if self.re_adjust:
+            Replay_Buf_Vector_States[LAST_STATE_INDEX] = self.global_states_vectors[0:NUM_MODULES]
+            LAST_STATE_INDEX += 1
+        else:
+            Replay_Buf_Vector_States.append(self.global_states_vectors[0:NUM_MODULES])
 
     # Loops through NUM_MODULES+1 (since there is no module 0), sums actions of all modules except for current
     # divides by the total number of modules
@@ -620,13 +636,20 @@ class Module(Supervisor):
 
     # Calculates the mean of the action vectors
     def calc_mean_action_vector(self):
+        global LAST_MEAN_ACTION_INDEX
         # Making a base vector the shape of (1, NUM_MODULES)
         a = [0]*NUM_MODULES
         # add previous mean action vector to the buffer
         #   if previous mean action vector has size greater than/equal to number of modules, this means that either
         #   previous mean action vector has more values than actions so limit the input to only the first NUM_MODULES
         #   actions; else the previous mean action vector is just being initialized so fill with 0 vectors
-        Replay_Buf_Vector_Mean_Actions_.append(self.prev_mean_action_vector[0:NUM_MODULES] if len(self.prev_mean_action_vector) >= NUM_MODULES else [0]*NUM_MODULES)
+        if self.re_adjust:
+            Replay_Buf_Vector_Mean_Actions_[LAST_MEAN_ACTION_INDEX] = self.prev_mean_action_vector[0:NUM_MODULES] \
+                if len(self.prev_mean_action_vector) >= NUM_MODULES else [0]*NUM_MODULES
+        else:
+            Replay_Buf_Vector_Mean_Actions_.append(self.prev_mean_action_vector[0:NUM_MODULES]
+                                                   if len(self.prev_mean_action_vector) >= NUM_MODULES
+                                                   else [0]*NUM_MODULES)
         for m in range(NUM_MODULES):
             # self.bot_id - 1 since bot ids start with 1 while arrays with index of 0
             if m != (self.bot_id - 1):
@@ -637,7 +660,12 @@ class Module(Supervisor):
         self.prev_mean_action_vector = self.mean_action_vector
         # NUM_MODULE - 1 since we are taking a mean of all except current modules
         self.mean_action_vector = np.true_divide(a, (NUM_MODULES - 1))
-        Replay_Buf_Vector_Mean_Actions.append(self.mean_action_vector[0:NUM_MODULES])
+
+        if self.re_adjust:
+            Replay_Buf_Vector_Mean_Actions[LAST_MEAN_ACTION_INDEX] = self.mean_action_vector[0:NUM_MODULES]
+            LAST_MEAN_ACTION_INDEX += 1
+        else:
+            Replay_Buf_Vector_Mean_Actions.append(self.mean_action_vector[0:NUM_MODULES])
 
     # Takes mean_action and rounds it down
     def mean_action_rounder(self):
@@ -718,7 +746,9 @@ class Module(Supervisor):
 
                 # If Episode changed
                 if EPISODE > self.prev_episode:
-                    global REPLAY_MEMORY_EPISODE
+                    global Replay_Buf_Vector_Mean_Actions, \
+                        Replay_Buf_Vector_Mean_Actions_, LAST_MEAN_ACTION_INDEX, \
+                        Replay_Buf_Vector_States, Replay_Buf_Vector_States_, LAST_STATE_INDEX, REPLAY_MEMORY_EPISODE
 
                     self.max_batch = replay_buf_state.return_buffer_len
                     self.min_max_set = False
@@ -739,34 +769,69 @@ class Module(Supervisor):
                     replay_buf_state_.put(np.array(self.prev_state))
                     replay_buf_action.put(np.array(self.episode_current_action))
 
-#                     if REPLAY_MEMORY_EPISODE == EPISODE_LIMIT:
-#                         replay_buf_action.clear()
-#                         replay_buf_state_.clear()
-#                         replay_buf_reward.clear()
-#                         replay_buf_state.clear()
-#                         replay_buf_mean_action.clear()
-#                         REPLAY_MEMORY_EPISODE = 0
-#                         self.min_batch = 0
-#                         self.max_batch = 0
-#                         replay_buf_state.return_buffer_len = 0
-#                         self.recycles += 1
-#
-#                         if self.bot_id == LEADER_ID:
-#                             """
-#                             Replay_Buf_Vector_States = []
-# Replay_Buf_Vector_States_ = []
-# Replay_Buf_Vector_Mean_Actions = []
-# Replay_Buf_Vector_Mean_Actions_ = []
-#                             """
-#                             print(f"after the limit\nrecycles: {self.recycles}\nvector sizes:\nstates: {len(Replay_Buf_Vector_States)}\n"
-#                                   f"States_: {len(Replay_Buf_Vector_States_)}\n"
-#                                   f"Mean_Actions: {len(Replay_Buf_Vector_Mean_Actions)}\n"
-#                                   f"Mean_Actions_: {len(Replay_Buf_Vector_Mean_Actions_)}\n")
+                    if REPLAY_MEMORY_EPISODE == EPISODE_LIMIT:
+                        # .clear() resets buffer index to 0
+                        # this part just resets all indexes to initial index
+                        replay_buf_action.clear()
+                        replay_buf_state_.clear()
+                        replay_buf_reward.clear()
+                        replay_buf_state.clear()
+                        replay_buf_mean_action.clear()
+                        REPLAY_MEMORY_EPISODE = 0
+                        self.min_batch = 0
+                        self.max_batch = 0
+                        replay_buf_state.return_buffer_len = 0
+                        LAST_STATE_INDEX = 0
+                        LAST_MEAN_ACTION_INDEX = 0
+                        # for debugging, will be removed later
+                        self.recycles += 1
 
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, TOTAL_ELAPSED_TIME, self.episode_reward, self.loss)
 
+                    if EPISODE > 3 and not self.re_adjust:
+                        # After 3 episodes amount of elements in each episode becomes more obvious and stable
+                        #   so all of the buffers are switching to structure which will work with
+                        #   circular buffer structure
+                        self.re_adjust = True
+                        # Vector Actions x6 Vector states x3
+                        # size of actions is x6 (for some reason mean actions take double the size of states)
+                        #   x Episode_Limit to make sure that all parts can fit, + 1000 as a buffer safety area
+                        size_of_mean_actions = (len(self.episode_mean_action)*6)*EPISODE_LIMIT + 1000
+                        size_of_states = (len(self.episode_current_action)*3)*EPISODE_LIMIT + 1000
+
+                        temp_actions = Replay_Buf_Vector_Mean_Actions
+                        Replay_Buf_Vector_Mean_Actions = [None]*size_of_mean_actions
+
+                        for index, item in enumerate(temp_actions):
+                            Replay_Buf_Vector_Mean_Actions[index] = item
+
+                        temp_actions = Replay_Buf_Vector_Mean_Actions_
+                        Replay_Buf_Vector_Mean_Actions_ = [None]*size_of_mean_actions
+
+                        for index, item in enumerate(temp_actions):
+                            Replay_Buf_Vector_Mean_Actions_[index] = item
+
+                        # last accessible mean action is LAST_MEAN_ACTION_INDEX - 1
+                        LAST_MEAN_ACTION_INDEX = len(temp_actions)
+                        del temp_actions
+
+                        temp_states = Replay_Buf_Vector_States
+                        Replay_Buf_Vector_States = [None]*size_of_states
+
+                        for index, item in enumerate(temp_states):
+                            Replay_Buf_Vector_States[index] = item
+
+                        temp_states = Replay_Buf_Vector_States_
+                        Replay_Buf_Vector_States_ = [None]*size_of_states
+
+                        for index, item in enumerate(temp_states):
+                            Replay_Buf_Vector_States_[index] = item
+
+                        # last accessible mean action is LAST_STATE_INDEX - 1
+                        LAST_STATE_INDEX = len(temp_states)
+                        del temp_states, index, item
 
                     self.episode_reward = 0
                     self.episode_mean_action.clear()
@@ -834,7 +899,7 @@ def writer(name, num_of_bots, time_step, reward, loss):
                 pass
         BASE_LOGS_FOLDER = current_run
 
-    file_name = "{}_MODULES_{}.txt".format(num_of_bots, name)
+    file_name = "{}_{}_MODULES_{}.txt".format(NN_TYPE, num_of_bots, name)
     file_path = os.path.join(BASE_LOGS_FOLDER, file_name)
     with open(file_path, "a") as fin:
         fin.write('{},{},{},{}\n'.format(time_step, reward, loss, EPISODE))
