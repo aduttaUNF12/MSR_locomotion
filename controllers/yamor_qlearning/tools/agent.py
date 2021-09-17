@@ -40,7 +40,7 @@ class Agent:
         if self.NN_TYPE == "FCNN":
             payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device)
         else:
-            payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1) + (NUM_MODULES * 3), 1, 1)
+            payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1) + NUM_MODULES, 1, 1)
         return payload
 
     # Greedy action selection
@@ -105,7 +105,9 @@ class Agent:
                 # get the list of state vectors
                 robot_state_vectors = vector_states_buffer[item][0:NUM_MODULES]
                 # add corresponding action
-                robot_state_vectors.append(list(itertools.chain(*vector_actions_buffer[item])))
+                t = vector_actions_buffer[item][self.module_number - 1]
+                robot_state_vectors.append(t)
+                # robot_state_vectors.append(list(itertools.chain(*vector_actions_buffer[item][self.module_number - 1])))
                 # add corresponding mean action
                 robot_state_vectors.append(vector_mactions_buffer[item])
                 # convert a list of lists into a single list
@@ -122,7 +124,9 @@ class Agent:
                 # get the list of state vectors
                 robot_state_vectors_ = vector_states__buffer[item][0:NUM_MODULES]
                 # add corresponding action
-                robot_state_vectors_.append(list(itertools.chain(*vector_actions__buffer[item])))
+                t = vector_actions__buffer[item][self.module_number - 1]
+                robot_state_vectors_.append(t)
+                # robot_state_vectors_.append(list(itertools.chain(*vector_actions__buffer[item][self.module_number - 1])))
                 # add corresponding mean action
                 robot_state_vectors_.append(vector_mactions__buffer[item])
                 # convert a list of lists into a single list
