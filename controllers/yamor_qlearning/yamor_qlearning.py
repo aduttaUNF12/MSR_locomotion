@@ -9,6 +9,7 @@ __version__ = '09.13.21'
 # TODO: fix the modular seperation and imports
 # TODO: fix the buffers
 # TODO: fix the constants.py
+# TODO: add more documentation
 if __name__ == '__main__':
     # global NN_TYPE
     # TODO: for now the NN selector is a string variable

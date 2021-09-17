@@ -1,6 +1,7 @@
 import struct
 import math
 import sys
+import itertools
 
 import numpy as np
 
@@ -70,7 +71,7 @@ class Module(Supervisor):
         self.global_states = [1]*NUM_MODULES
         self.global_states_vectors = []
         self.global_actions_vectors = []
-        #  TODO: change mean action to a vector representation
+        self.global_prev_actions_vectors = []
         self.mean_action_vector = []
         self.mean_action = 0
         self.prev_states_vector = []
@@ -112,10 +113,15 @@ class Module(Supervisor):
         self.replay_buf_state_ = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.float64)
         self.replay_buf_mean_action = ReplayBuffer(shape=(MEMORY_CAPACITY,), dtype=np.float64)
         #  TODO: possibly rework these \/
+        self.LAST_MEAN_ACTION_INDEX = 0
+        self.LAST_STATE_INDEX = 0
+        self.LAST_ACTION_INDEX = 0
         self.Replay_Buf_Vector_States = []
         self.Replay_Buf_Vector_States_ = []
         self.Replay_Buf_Vector_Mean_Actions = []
         self.Replay_Buf_Vector_Mean_Actions_ = []
+        self.Replay_Buf_Vector_Actions = []
+        self.Replay_Buf_Vector_Actions_ = []
 
         # making all modules have NN
         self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, gamma=GAMMA,
@@ -217,7 +223,16 @@ class Module(Supervisor):
 
     # Converts global_actions (actions of all of the modules in the chain) into a vector representation
     def actions_to_vectors(self):
-        # adds vector representation of the state to an array, [x, y, z]
+        # TODO: make a log of prev vectors and current vectors to see if everything works
+        if self.re_adjust:
+            self.Replay_Buf_Vector_Actions_[self.LAST_STATE_INDEX] = self.global_prev_actions_vectors[0:NUM_MODULES] \
+                if len(self.global_prev_actions_vectors) >= NUM_MODULES else [[0, 0, ]*NUM_MODULES]
+        else:
+            self.Replay_Buf_Vector_Actions_.append(self.global_prev_actions_vectors[0:NUM_MODULES]
+                                                   if len(self.global_prev_actions_vectors) >= NUM_MODULES
+                                                   else [[0, 0, 0]]*NUM_MODULES)
+        self.global_actions_vectors = []
+    # adds vector representation of the state to an array, [x, y, z]
         for action in self.global_actions:
             if int(action) == 1:
                 self.global_actions_vectors.append([0, 0, 0])
@@ -229,8 +244,15 @@ class Module(Supervisor):
                 print(f"[{self.bot_id}] Error with state_to_vectors !!!!!!!!!!!!!", file=sys.stderr)
                 exit(2)
 
+        if self.re_adjust:
+            self.Replay_Buf_Vector_Actions[self.LAST_ACTION_INDEX] = self.global_actions_vectors[0:NUM_MODULES]
+            self.LAST_ACTION_INDEX += 1
+        else:
+            self.Replay_Buf_Vector_Actions.append(self.global_actions_vectors[0:NUM_MODULES])
+
+        # self.global_prev_actions_vectors = self.global_actions_vectors
         self.calc_mean_action_vector()
-        self.global_actions_vectors = []
+        # self.global_actions_vectors = []
 
     # Converts global states to vector form
     def states_to_vectors(self):
@@ -239,11 +261,10 @@ class Module(Supervisor):
                 1 - zero
                 2 - max
        """
-        global LAST_STATE_INDEX
         # adds vector representation of the state to an array, [Down, Neutral, Up]
         # reasoning for line 517 is calc_mean_action_vector()
         if self.re_adjust:
-            self.Replay_Buf_Vector_States_[LAST_STATE_INDEX] = self.prev_states_vector[0:NUM_MODULES] \
+            self.Replay_Buf_Vector_States_[self.LAST_STATE_INDEX] = self.prev_states_vector[0:NUM_MODULES] \
                 if len(self.prev_states_vector) >= NUM_MODULES else [[0, 0, ]*NUM_MODULES]
         else:
             self.Replay_Buf_Vector_States_.append(self.prev_states_vector[0:NUM_MODULES]
@@ -264,8 +285,8 @@ class Module(Supervisor):
 
         # for some reason there is an extra [0] array at the end
         if self.re_adjust:
-            self.Replay_Buf_Vector_States[LAST_STATE_INDEX] = self.global_states_vectors[0:NUM_MODULES]
-            LAST_STATE_INDEX += 1
+            self.Replay_Buf_Vector_States[self.LAST_STATE_INDEX] = self.global_states_vectors[0:NUM_MODULES]
+            self.LAST_STATE_INDEX += 1
         else:
             self.Replay_Buf_Vector_States.append(self.global_states_vectors[0:NUM_MODULES])
 
@@ -288,7 +309,6 @@ class Module(Supervisor):
 
     # Calculates the mean of the action vectors
     def calc_mean_action_vector(self):
-        global LAST_MEAN_ACTION_INDEX
         # Making a base vector the shape of (1, NUM_MODULES)
         a = [0]*NUM_MODULES
         # add previous mean action vector to the buffer
@@ -296,12 +316,12 @@ class Module(Supervisor):
         #   previous mean action vector has more values than actions so limit the input to only the first NUM_MODULES
         #   actions; else the previous mean action vector is just being initialized so fill with 0 vectors
         if self.re_adjust:
-            self.Replay_Buf_Vector_Mean_Actions_[LAST_MEAN_ACTION_INDEX] = self.prev_mean_action_vector[0:NUM_MODULES] \
+            self.Replay_Buf_Vector_Mean_Actions_[self.LAST_MEAN_ACTION_INDEX] = self.prev_mean_action_vector[0:NUM_MODULES] \
                 if len(self.prev_mean_action_vector) >= NUM_MODULES else [0]*NUM_MODULES
         else:
             self.Replay_Buf_Vector_Mean_Actions_.append(self.prev_mean_action_vector[0:NUM_MODULES]
-                                                   if len(self.prev_mean_action_vector) >= NUM_MODULES
-                                                   else [0]*NUM_MODULES)
+                                                        if len(self.prev_mean_action_vector) >= NUM_MODULES
+                                                        else [0]*NUM_MODULES)
         for m in range(NUM_MODULES):
             # self.bot_id - 1 since bot ids start with 1 while arrays with index of 0
             if m != (self.bot_id - 1):
@@ -314,8 +334,8 @@ class Module(Supervisor):
         self.mean_action_vector = np.true_divide(a, (NUM_MODULES - 1))
 
         if self.re_adjust:
-            self.Replay_Buf_Vector_Mean_Actions[LAST_MEAN_ACTION_INDEX] = self.mean_action_vector[0:NUM_MODULES]
-            LAST_MEAN_ACTION_INDEX += 1
+            self.Replay_Buf_Vector_Mean_Actions[self.LAST_MEAN_ACTION_INDEX] = self.mean_action_vector[0:NUM_MODULES]
+            self.LAST_MEAN_ACTION_INDEX += 1
         else:
             self.Replay_Buf_Vector_Mean_Actions.append(self.mean_action_vector[0:NUM_MODULES])
 
@@ -500,9 +520,11 @@ class Module(Supervisor):
                         action_buffer=self.replay_buf_action,
                         reward_buffer=self.replay_buf_reward,
                         vector_states_buffer=self.Replay_Buf_Vector_States,
-                        vector_mactions_buffer=self.Replay_Buf_Vector_Mean_Actions,
                         vector_states__buffer=self.Replay_Buf_Vector_States_,
+                        vector_mactions_buffer=self.Replay_Buf_Vector_Mean_Actions,
                         vector_mactions__buffer=self.Replay_Buf_Vector_Mean_Actions_,
+                        vector_actions_buffer=self.Replay_Buf_Vector_Actions,
+                        vector_actions__buffer=self.Replay_Buf_Vector_Actions,
                         episode=self.episode
                                                     )
                     # if self.bot_id == LEADER_ID:
@@ -514,6 +536,7 @@ class Module(Supervisor):
             self.prev_actions = self.current_action
             # get the array of state vectors
             robot_state_vectors = self.global_states_vectors[0:NUM_MODULES]
+            robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
             robot_state_vectors.append(self.mean_action_vector)
 
             self.current_action = self.agent.choose_action(robot_state_vectors)[0]
