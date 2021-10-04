@@ -536,8 +536,10 @@ class Module(Supervisor):
             self.prev_actions = self.current_action
             # get the array of state vectors
             robot_state_vectors = self.global_states_vectors[0:NUM_MODULES]
-            t = self.global_actions_vectors[self.bot_id-1]
-            robot_state_vectors.append(t)
+            # 540-541 is for input with action
+            # t = self.global_actions_vectors[self.bot_id-1]
+            # robot_state_vectors.append(t)
+
             # robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors[self.bot_id - 1])))
             robot_state_vectors.append(self.mean_action_vector)
 
