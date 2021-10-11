@@ -115,12 +115,17 @@ class Agent:
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
                 payload = self.payload_maker(temp_)
-                res = self.policy_net(payload.to(self.policy_net.device))
+                del temp_, robot_state_vectors
+                res = self.policy_net(payload)
+                del payload
                 res = res.to('cpu')
-                # res[temp_action[index2]] = select the estimate value form the res list which corresponds to an
+
+            # res[temp_action[index2]] = select the estimate value form the res list which corresponds to an
                 #   action of at the same index; adds the value in tensor form to the state_action_values
-                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to(self.policy_net.device))
+                state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to('cpu'))
+                # state_action_values.append(res[temp_action[index2]].to('cpu').detach().numpy())
                 del res
+            del index2, item
 
             for index3, item in enumerate(r):
                 # get the list of state vectors
@@ -132,23 +137,31 @@ class Agent:
                 robot_state_vectors_.append(vector_mactions__buffer[item])
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors_)))
+                del robot_state_vectors_
                 payload = self.payload_maker(temp_)
-                res = self.target_net(payload)
+                del temp_
+                res = self.target_net(payload).to('cpu').detach().numpy()
+                del payload
                 # get the position of the largest estimate in the res list, multiplies it by gamma and
                 #   adds reward associated with this action in a given Episode
 
-                max_index = np.argmax(res.to('cpu').detach().numpy())
+                max_index = np.argmax(res)
+                # expected_state_action_values.append((res[max_index].to(self.target_net.device) * self.gamma) + temp_rewards[index3])
                 expected_state_action_values.append((res[max_index] * self.gamma) + temp_rewards[index3])
 
                 # expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.gamma) + temp_rewards[index3])
                 del res
-            del item
+            del index3, item
         state_action_values = torch.stack(state_action_values)
         state_action_values = state_action_values.double().float()
 
-        expected_state_action_values = torch.stack(expected_state_action_values).double().float()
-
-        loss = self.policy_net.loss(state_action_values, expected_state_action_values)
+        # expected_state_action_values = torch.stack(expected_state_action_values).double().float()
+        expected_state_action_values = np.stack(expected_state_action_values)
+        # state_action_values = torch.tensor(state_action_values).to(self.target_net.device)
+        expected_state_action_values = torch.tensor(expected_state_action_values).to(self.target_net.device)
+        # loss = self.policy_net.loss(state_action_values, expected_state_action_values)
+        loss = self.policy_net.loss(state_action_values.to(self.target_net.device), expected_state_action_values.double().float())
+        del expected_state_action_values, state_action_values
         loss.backward()
         self.policy_net.optimizer.step()
         self.decrement_epsilon()
