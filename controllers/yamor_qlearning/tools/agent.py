@@ -40,7 +40,8 @@ class Agent:
         if self.NN_TYPE == "FCNN":
             payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device)
         else:
-            payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
             # for action input
             # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1) + NUM_MODULES, 1, 1)
         return payload
@@ -114,13 +115,17 @@ class Agent:
                  # add corresponding action
                 # t = vector_actions_buffer[item][self.module_number - 1]
                 # robot_state_vectors.append(t)
-
+                if self.module_number == 1:
+                    print(f"state vectors >>> {robot_state_vectors}")
                 # add corresponding mean action
+                if self.module_number == 1:
+                    print(f"Mean action >>> {vector_mactions_buffer[item]}")
+
                 robot_state_vectors.append(vector_mactions_buffer[item])
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
                 if self.module_number == 1:
-                    print(f"Temp__ >>> {temp_}")
+                    print(f"Temp__ >>> {temp_} (shape) {temp_.shape}")
                 payload = self.payload_maker(temp_)
                 if self.module_number == 1:
                     print(f"Payload >>> {payload}")
