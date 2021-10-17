@@ -12,7 +12,7 @@ class CNN(nn.Module):
         self.n_actions = n_actions
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
-
+        nn.Conv1d()
          # TODO IMPORTANT: 3*(number_of_modules + 1) + (number_of_modules * 3), + NUM MODULES * 3 is the only way to get payload states+action+mean
         # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1) + (number_of_modules), out_channels=32, kernel_size=(1, 1)).to(self.device)
         self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
