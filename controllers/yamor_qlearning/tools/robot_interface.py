@@ -128,7 +128,7 @@ class Module(Supervisor):
                            epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON,
                            target_net=target_net, policy_net=policy_net, nn_type=nn_type)
 
-
+        self.buffer_overflow = 0
         self.state_changer()
         self.notify_of_an_action(self.current_action)
         # self.notify_of_an_action(self.current_state, action=False)
@@ -407,7 +407,14 @@ class Module(Supervisor):
                 self.replay_buf_state.return_buffer_len += 1
                 if self.replay_buf_state.return_buffer_len > MEMORY_CAPACITY:
                     print(f"Replay buffer is full")
-                    exit(11)
+                    self.replay_buf_state.return_buffer_len = 0
+                    self.replay_buf_state.clear()
+                    self.replay_buf_state_.clear()
+                    self.replay_buf_mean_action.clear()
+                    self.replay_buf_action.clear()
+                    self.replay_buf_reward.clear()
+                    self.buffer_overflow = 1
+                    # exit(11)
 
                 self.episode_reward += self.reward
                 self.episode_rewards.append(self.reward)
@@ -420,16 +427,19 @@ class Module(Supervisor):
                 if self.episode > self.prev_episode:
                     self.max_batch = self.replay_buf_state.return_buffer_len
                     self.min_max_set = False
-                    self.ReplayMemory_EpisodeBuffer[self.episode-1] = {"min": self.min_batch,
-                                                                       "max": self.max_batch}
+                    if self.buffer_overflow != 1:
+                        self.ReplayMemory_EpisodeBuffer[self.episode-1] = {"min": self.min_batch,
+                                                                           "max": self.max_batch}
 
-                    # Since Episode 1 usually is 1 less than all other episodes
-                    if self.episode - 1 == 1:
-                        self.ReplayMemory_EpisodeBuffer[self.REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
-                                                                                  "max": self.max_batch + 1}
-                    else:
-                        self.ReplayMemory_EpisodeBuffer[self.REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
+                        # Since Episode 1 usually is 1 less than all other episodes
+                        if self.episode - 1 == 1:
+                            self.ReplayMemory_EpisodeBuffer[self.REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
+                                                                                      "max": self.max_batch + 1}
+                        else:
+                            self.ReplayMemory_EpisodeBuffer[self.REPLAY_MEMORY_EPISODE] = {"min": self.min_batch,
                                                                                   "max": self.max_batch}
+                    else:
+                        self.buffer_overflow = 0
 
                     self.replay_buf_reward.put(np.array(self.episode_rewards))
                     self.replay_buf_state.put(np.array(self.current_state))

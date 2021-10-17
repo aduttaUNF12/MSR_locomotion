@@ -64,6 +64,7 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
+    # TODO: document what each buffer contains
     def optimize(self, batch=False, episode_buffer=None, action_buffer=None, reward_buffer=None, vector_states_buffer=None,
                  vector_mactions_buffer=None, vector_states__buffer=None, vector_mactions__buffer=None,
                  vector_actions_buffer=None, vector_actions__buffer=None, episode=None):
@@ -96,17 +97,21 @@ class Agent:
 
         state_action_values = []
         expected_state_action_values = []
+        # expected_state_action_values = np.array([], dtype=np.float)
+
         # iterates over the array of range arrays,  index1 is the id of the range array, r is the array or range
         for index1, r in enumerate(ranges):
             # pull values corresponding to the r range
+            # getting the sampled actions
             temp_action = action_buffer.get(r)
+            # getting the sampled rewards
             temp_rewards = reward_buffer.get(r)
-
+            # TODO: look into something like arraylist in java
             # iterates over the r, index2 is the id of the item in r, and item is the entry in the list
             for index2, item in enumerate(r):
                 # get the list of state vectors
                 robot_state_vectors = vector_states_buffer[item][0:NUM_MODULES]
-                # add corresponding action
+                 # add corresponding action
                 # t = vector_actions_buffer[item][self.module_number - 1]
                 # robot_state_vectors.append(t)
 
@@ -114,7 +119,13 @@ class Agent:
                 robot_state_vectors.append(vector_mactions_buffer[item])
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
+                if self.module_number == 1:
+                    print(f"Temp__ >>> {temp_}")
                 payload = self.payload_maker(temp_)
+                if self.module_number == 1:
+                    print(f"Payload >>> {payload}")
+
+                exit(11)
                 del temp_, robot_state_vectors
                 res = self.policy_net(payload)
                 del payload
@@ -122,6 +133,11 @@ class Agent:
 
             # res[temp_action[index2]] = select the estimate value form the res list which corresponds to an
                 #   action of at the same index; adds the value in tensor form to the state_action_values
+                if self.module_number == 1 and len(episode_buffer) > 7:
+                    print(f"res >>> {res}\naction index >>> {index2}\n"
+                          f"action choice >>> {temp_action[index2]}\n"
+                          f"res[action choice] >>> {res[temp_action[index2]]}\n")
+
                 state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to('cpu'))
                 # state_action_values.append(res[temp_action[index2]].to('cpu').detach().numpy())
                 del res
@@ -140,28 +156,52 @@ class Agent:
                 del robot_state_vectors_
                 payload = self.payload_maker(temp_)
                 del temp_
-                res = self.target_net(payload).to('cpu').detach().numpy()
+                # res = self.target_net(payload).to('cpu').detach().numpy()
+                if self.module_number == 1 and len(episode_buffer) > 7:
+                    res = self.target_net(payload).to('cpu').detach()
+                else:
+                    res = self.target_net(payload).to('cpu').detach()
                 del payload
                 # get the position of the largest estimate in the res list, multiplies it by gamma and
                 #   adds reward associated with this action in a given Episode
 
                 max_index = np.argmax(res)
-                # expected_state_action_values.append((res[max_index].to(self.target_net.device) * self.gamma) + temp_rewards[index3])
-                expected_state_action_values.append((res[max_index] * self.gamma) + temp_rewards[index3])
+                expected_state_action_values.append((res[max_index].to('cpu').detach() * self.gamma) + temp_rewards[index3])
+                if self.module_number == 1 and len(episode_buffer) > 7:
+                    print(f"OLD OUTPUT\nout >>> {(res[max_index].to(self.target_net.device) * self.gamma) + temp_rewards[index3]}")
+                    print(f"res >>> {res}\nindex >>> {max_index}\nvalue >>> {res[max_index]}\n"
+                          f"after gamma >>> {res[max_index] * self.gamma}\n"
+                          f"reward index >>> {index3}\nreward >>> {temp_rewards[index3]}\n"
+                          f"after reward + gamma >>> {(res[max_index] * self.gamma) + temp_rewards[index3]}")
 
+                # expected_state_action_values.append((res[max_index] * self.gamma) + temp_rewards[index3])
+                if len(episode_buffer) > 7:
+                    exit(11)
                 # expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.gamma) + temp_rewards[index3])
                 del res
             del index3, item
+
         state_action_values = torch.stack(state_action_values)
+        t = state_action_values
         state_action_values = state_action_values.double().float()
 
+        # if self.module_number == 1:
+        #     print(f"input ev >>> {t}\nout values >>> {state_action_values}")
+
         # expected_state_action_values = torch.stack(expected_state_action_values).double().float()
+        t = expected_state_action_values
         expected_state_action_values = np.stack(expected_state_action_values)
+
+        # if self.module_number == 1:
+        #     print(f"input values >>> {t}\nout values >>> {expected_state_action_values}")
+
         # state_action_values = torch.tensor(state_action_values).to(self.target_net.device)
         expected_state_action_values = torch.tensor(expected_state_action_values).to(self.target_net.device)
         # loss = self.policy_net.loss(state_action_values, expected_state_action_values)
         loss = self.policy_net.loss(state_action_values.to(self.target_net.device), expected_state_action_values.double().float())
         del expected_state_action_values, state_action_values
+        # TODO figure out why loss is astronomical
+        # TODO: run for 20k episodes for current config
         loss.backward()
         self.policy_net.optimizer.step()
         self.decrement_epsilon()
