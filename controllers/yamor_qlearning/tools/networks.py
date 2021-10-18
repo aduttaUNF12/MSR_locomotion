@@ -15,7 +15,9 @@ class CNN(nn.Module):
 
          # TODO IMPORTANT: 3*(number_of_modules + 1) + (number_of_modules * 3), + NUM MODULES * 3 is the only way to get payload states+action+mean
         # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1) + (number_of_modules), out_channels=32, kernel_size=(1, 1)).to(self.device)
-        self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
+        # number_of_modules*7+1
+        # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
+        self.conv1 = nn.Conv2d(in_channels=(7*number_of_modules)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
         self.bn1 = nn.BatchNorm2d(32, affine=False).to(self.device)
 
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(1, 1)).to(self.device)
@@ -27,7 +29,8 @@ class CNN(nn.Module):
         # Input for the action input
         # x = torch.rand((32, 3*(number_of_modules + 1) + (number_of_modules))).to(self.device).view(32, 3*(number_of_modules + 1) + (number_of_modules), 1, 1)
 
-        x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
+        # x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
+        x = torch.rand((32, (7*number_of_modules)+1)).to(self.device).view(32, (7*number_of_modules)+1, 1, 1)
         self._to_linear = None
         self.convs(x)
 

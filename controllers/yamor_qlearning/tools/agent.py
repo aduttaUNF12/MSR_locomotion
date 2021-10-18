@@ -40,7 +40,10 @@ class Agent:
         if self.NN_TYPE == "FCNN":
             payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device)
         else:
-            payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            # if self.module_number == 1:
+            #     print(f"payload input shape >>> {temp_.shape}")
+            # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (7*NUM_MODULES)+1, 1, 1)
             # for action input
             # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1) + NUM_MODULES, 1, 1)
         return payload
@@ -110,22 +113,39 @@ class Agent:
             # iterates over the r, index2 is the id of the item in r, and item is the entry in the list
             for index2, item in enumerate(r):
                 # get the list of state vectors
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     print(f"states >>> {vector_states_buffer[item][0:NUM_MODULES]}")
                 robot_state_vectors = vector_states_buffer[item][0:NUM_MODULES]
-                 # add corresponding action
-                # t = vector_actions_buffer[item][self.module_number - 1]
-                # robot_state_vectors.append(t)
+
+                # add corresponding actions
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                #     print(f"actions >>> {vector_actions_buffer[item]}")
+                #     print(f"t_action >>> {t_action}")
+                t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                robot_state_vectors.append(t_action)
 
                 # add corresponding mean action
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     print(f"mean_actions >>> {vector_mactions_buffer[item]}")
+
                 robot_state_vectors.append(vector_mactions_buffer[item])
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     print(f"reward >>> {[temp_rewards[index1]]}")
+                robot_state_vectors.append([temp_rewards[index1]])
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
-                if self.module_number == 1:
-                    print(f"Temp__ >>> {temp_}")
+                # if self.module_number == 1:
+                #     print(f"Temp__ >>> {temp_}")
                 payload = self.payload_maker(temp_)
-                if self.module_number == 1:
-                    print(f"Payload >>> {payload}")
+                # if self.module_number == 1:
+                #     print(f"Payload >>> {payload}")
 
-                exit(11)
+                # exit(11)
                 del temp_, robot_state_vectors
                 res = self.policy_net(payload)
                 del payload
@@ -133,10 +153,10 @@ class Agent:
 
             # res[temp_action[index2]] = select the estimate value form the res list which corresponds to an
                 #   action of at the same index; adds the value in tensor form to the state_action_values
-                if self.module_number == 1 and len(episode_buffer) > 7:
-                    print(f"res >>> {res}\naction index >>> {index2}\n"
-                          f"action choice >>> {temp_action[index2]}\n"
-                          f"res[action choice] >>> {res[temp_action[index2]]}\n")
+                # if self.module_number == 1 and len(episode_buffer) > 7:
+                #     print(f"res >>> {res}\naction index >>> {index2}\n"
+                #           f"action choice >>> {temp_action[index2]}\n"
+                #           f"res[action choice] >>> {res[temp_action[index2]]}\n")
 
                 state_action_values.append(torch.tensor(res[temp_action[index2]], dtype=torch.float, requires_grad=True).to('cpu'))
                 # state_action_values.append(res[temp_action[index2]].to('cpu').detach().numpy())
@@ -149,8 +169,13 @@ class Agent:
                 # add corresponding action
                 # t = vector_actions__buffer[item][self.module_number - 1]
                 # robot_state_vectors_.append(t)
+                t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                robot_state_vectors_.append(t_action)
+
                 # add corresponding mean action
-                robot_state_vectors_.append(vector_mactions__buffer[item])
+                robot_state_vectors_.append(vector_mactions_buffer[item])
+                robot_state_vectors_.append([temp_rewards[index3]])
+
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors_)))
                 del robot_state_vectors_
@@ -167,16 +192,16 @@ class Agent:
 
                 max_index = np.argmax(res)
                 expected_state_action_values.append((res[max_index].to('cpu').detach() * self.gamma) + temp_rewards[index3])
-                if self.module_number == 1 and len(episode_buffer) > 7:
-                    print(f"OLD OUTPUT\nout >>> {(res[max_index].to(self.target_net.device) * self.gamma) + temp_rewards[index3]}")
-                    print(f"res >>> {res}\nindex >>> {max_index}\nvalue >>> {res[max_index]}\n"
-                          f"after gamma >>> {res[max_index] * self.gamma}\n"
-                          f"reward index >>> {index3}\nreward >>> {temp_rewards[index3]}\n"
-                          f"after reward + gamma >>> {(res[max_index] * self.gamma) + temp_rewards[index3]}")
+                # if self.module_number == 1 and len(episode_buffer) > 7:
+                #     print(f"OLD OUTPUT\nout >>> {(res[max_index].to(self.target_net.device) * self.gamma) + temp_rewards[index3]}")
+                #     print(f"res >>> {res}\nindex >>> {max_index}\nvalue >>> {res[max_index]}\n"
+                #           f"after gamma >>> {res[max_index] * self.gamma}\n"
+                #           f"reward index >>> {index3}\nreward >>> {temp_rewards[index3]}\n"
+                #           f"after reward + gamma >>> {(res[max_index] * self.gamma) + temp_rewards[index3]}")
 
                 # expected_state_action_values.append((res[max_index] * self.gamma) + temp_rewards[index3])
-                if len(episode_buffer) > 7:
-                    exit(11)
+                # if len(episode_buffer) > 7:
+                #     exit(11)
                 # expected_state_action_values.append((torch.tensor(np.argmax(res.to('cpu').detach().numpy()), dtype=torch.float).to(self.target_net.device) * self.gamma) + temp_rewards[index3])
                 del res
             del index3, item
