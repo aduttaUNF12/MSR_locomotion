@@ -13,8 +13,8 @@ __version__ = '09.13.21'
 if __name__ == '__main__':
     # global NN_TYPE
     # TODO: for now the NN selector is a string variable
-    # NN_TYPE = "FCNN"
-    NN_TYPE = "CNN"
+    NN_TYPE = "FCNN"
+    # NN_TYPE = "CNN"
 
     # TODO: make selection for regular buffer and priority buffer
 
