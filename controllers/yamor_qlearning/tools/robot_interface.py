@@ -116,6 +116,8 @@ class Module(Supervisor):
         self.LAST_MEAN_ACTION_INDEX = 0
         self.LAST_STATE_INDEX = 0
         self.LAST_ACTION_INDEX = 0
+        self.LAST_ALL_MEAN_ACTION_INDEX = 0
+        self.Replay_Buf_Vector_All_Mean_Actions = []
         self.Replay_Buf_Vector_States = []
         self.Replay_Buf_Vector_States_ = []
         self.Replay_Buf_Vector_Mean_Actions = []
@@ -265,7 +267,8 @@ class Module(Supervisor):
         # reasoning for line 517 is calc_mean_action_vector()
         if self.re_adjust:
             self.Replay_Buf_Vector_States_[self.LAST_STATE_INDEX] = self.prev_states_vector[0:NUM_MODULES] \
-                if len(self.prev_states_vector) >= NUM_MODULES else [[0, 0, ]*NUM_MODULES]
+                                                                    if len(self.prev_states_vector) >= NUM_MODULES\
+                                                                    else [[0, 0, 0]]*NUM_MODULES
         else:
             self.Replay_Buf_Vector_States_.append(self.prev_states_vector[0:NUM_MODULES]
                                                   if len(self.prev_states_vector) >= NUM_MODULES
@@ -289,6 +292,7 @@ class Module(Supervisor):
             self.LAST_STATE_INDEX += 1
         else:
             self.Replay_Buf_Vector_States.append(self.global_states_vectors[0:NUM_MODULES])
+
 
     # Loops through NUM_MODULES+1 (since there is no module 0), sums actions of all modules except for current
     # divides by the total number of modules
@@ -332,6 +336,26 @@ class Module(Supervisor):
         self.prev_mean_action_vector = self.mean_action_vector
         # NUM_MODULE - 1 since we are taking a mean of all except current modules
         self.mean_action_vector = np.true_divide(a, (NUM_MODULES - 1))
+
+        all_vectors = []
+        # mean action for all modules
+        for m in range(NUM_MODULES):
+            for mi in range(NUM_MODULES):
+                if m != (self.bot_id - 1):
+                    try:
+                        a = np.add(a, self.global_actions_vectors[m])
+                    except IndexError:
+                        pass
+            all_vectors.append(np.true_divide(a, (NUM_MODULES - 1)))
+
+        self.global_mean_action_vectors = all_vectors
+
+        if self.re_adjust:
+            self.Replay_Buf_Vector_All_Mean_Actions[self.LAST_ALL_MEAN_ACTION_INDEX] = self.global_mean_action_vectors[0:3]
+            self.LAST_ALL_MEAN_ACTION_INDEX += 1
+        else:
+            self.Replay_Buf_Vector_All_Mean_Actions.append(self.global_mean_action_vectors[0:3])
+
 
         if self.re_adjust:
             self.Replay_Buf_Vector_Mean_Actions[self.LAST_MEAN_ACTION_INDEX] = self.mean_action_vector[0:NUM_MODULES]
@@ -466,6 +490,7 @@ class Module(Supervisor):
                     #     # for debugging, will be removed later
                     #     self.recycles += 1
 
+                    # logger
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, self.total_time_elapsed,
@@ -527,6 +552,9 @@ class Module(Supervisor):
                 # if self.batch_ticks >= BATCH_SIZE and not self.batch_updated:
                 if self.batch_ticks >= BATCH_SIZE:
                     # run the NN and collect loss
+                    if self.bot_id == 1:
+                        print(f"states buf >>> {self.Replay_Buf_Vector_States}")
+                    exit()
                     self.loss = self.agent.optimize(
                         batch=True, episode_buffer=self.ReplayMemory_EpisodeBuffer,
                         action_buffer=self.replay_buf_action,
@@ -537,8 +565,10 @@ class Module(Supervisor):
                         vector_mactions__buffer=self.Replay_Buf_Vector_Mean_Actions_,
                         vector_actions_buffer=self.Replay_Buf_Vector_Actions,
                         vector_actions__buffer=self.Replay_Buf_Vector_Actions,
+                        vector_all_mactions_buffer=self.Replay_Buf_Vector_All_Mean_Actions,
                         episode=self.episode
-                                                    )
+                    )
+
                     # if self.bot_id == LEADER_ID:
                     #     print(f"loss: {self.loss}")
                     self.batch_updated = True
@@ -547,14 +577,21 @@ class Module(Supervisor):
             # set previous action option to the new one
             self.prev_actions = self.current_action
             # get the array of state vectors
-            robot_state_vectors = self.global_states_vectors[0:NUM_MODULES]
+            # TODO: regular
+            # robot_state_vectors = self.global_states_vectors[0:NUM_MODULES]
+            robot_state_vectors = self.global_states_vectors[0:NUM_MODULES][self.bot_id-1]
             # 540-541 is for input with action
             # t = self.global_actions_vectors[self.bot_id-1]
             # robot_state_vectors.append(t)
             # robot_state_vectors.append(self.global_actions_vectors)
-            robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
-            robot_state_vectors.append(self.mean_action_vector)
-            robot_state_vectors.append([self.reward])
+            # TODO: regular
+            # robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
+            robot_state_vectors += self.global_actions_vectors[self.bot_id-1]
+            # TODO: regular
+            # robot_state_vectors.append(list(itertools.chain(*self.global_mean_action_vectors)))
+            # TODO: regular
+            # robot_state_vectors.append([self.reward])
+            robot_state_vectors.append(self.reward)
 
             self.current_action = self.agent.choose_action(robot_state_vectors)[0]
             self.prev_states_vector = self.global_states_vectors
