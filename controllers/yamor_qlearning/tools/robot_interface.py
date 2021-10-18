@@ -73,6 +73,8 @@ class Module(Supervisor):
         self.global_actions_vectors = []
         self.global_prev_actions_vectors = []
         self.mean_action_vector = []
+        # TODO: calucate global mean action
+        self.global_mean_action_vectors = [1]*NUM_MODULES
         self.mean_action = 0
         self.prev_states_vector = []
         self.prev_mean_action_vector = []
