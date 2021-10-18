@@ -118,6 +118,8 @@ class Module(Supervisor):
         self.LAST_MEAN_ACTION_INDEX = 0
         self.LAST_STATE_INDEX = 0
         self.LAST_ACTION_INDEX = 0
+        self.LAST_ALL_MEAN_ACTION_INDEX = 0
+        self.Replay_Buf_Vector_All_Mean_Actions = []
         self.Replay_Buf_Vector_States = []
         self.Replay_Buf_Vector_States_ = []
         self.Replay_Buf_Vector_Mean_Actions = []
@@ -335,6 +337,25 @@ class Module(Supervisor):
         # NUM_MODULE - 1 since we are taking a mean of all except current modules
         self.mean_action_vector = np.true_divide(a, (NUM_MODULES - 1))
 
+        all_vectors = []
+        # mean action for all modules
+        for m in range(NUM_MODULES-1):
+            for mi in range(NUM_MODULES):
+                if m != (self.bot_id - 1):
+                    try:
+                        a = np.add(a, self.global_actions_vectors[m])
+                    except IndexError:
+                        pass
+            all_vectors.append(np.true_divide(a, (NUM_MODULES - 1)))
+
+        self.global_mean_action_vectors = all_vectors
+
+        if self.re_adjust:
+            self.Replay_Buf_Vector_All_Mean_Actions[self.LAST_ALL_MEAN_ACTION_INDEX] = self.global_mean_action_vectors[0:3]
+            self.LAST_ALL_MEAN_ACTION_INDEX += 1
+        else:
+            self.Replay_Buf_Vector_All_Mean_Actions.append(self.global_mean_action_vectors[0:3])
+
         if self.re_adjust:
             self.Replay_Buf_Vector_Mean_Actions[self.LAST_MEAN_ACTION_INDEX] = self.mean_action_vector[0:NUM_MODULES]
             self.LAST_MEAN_ACTION_INDEX += 1
@@ -537,6 +558,7 @@ class Module(Supervisor):
                         vector_mactions__buffer=self.Replay_Buf_Vector_Mean_Actions_,
                         vector_actions_buffer=self.Replay_Buf_Vector_Actions,
                         vector_actions__buffer=self.Replay_Buf_Vector_Actions,
+                        vector_all_mactions_buffer=self.Replay_Buf_Vector_All_Mean_Actions,
                         episode=self.episode
                                                     )
                     # if self.bot_id == LEADER_ID:

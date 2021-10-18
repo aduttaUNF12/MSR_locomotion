@@ -41,7 +41,8 @@ class Agent:
             payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device)
         else:
             # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
-            payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            # payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
+            payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device).view(12, 1, 1, 3)
             # for action input
             # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1) + NUM_MODULES, 1, 1)
         return payload
@@ -68,7 +69,7 @@ class Agent:
     # TODO: document what each buffer contains
     def optimize(self, batch=False, episode_buffer=None, action_buffer=None, reward_buffer=None, vector_states_buffer=None,
                  vector_mactions_buffer=None, vector_states__buffer=None, vector_mactions__buffer=None,
-                 vector_actions_buffer=None, vector_actions__buffer=None, episode=None):
+                 vector_actions_buffer=None, vector_actions__buffer=None, vector_all_mactions_buffer=None, episode=None):
         self.policy_net.optimizer.zero_grad()
 
         # get the current amount of Episodes
@@ -107,32 +108,74 @@ class Agent:
             temp_action = action_buffer.get(r)
             # getting the sampled rewards
             temp_rewards = reward_buffer.get(r)
+            # print(f"reward buffer >>> {temp_rewards}")
             # TODO: look into something like arraylist in java
             # iterates over the r, index2 is the id of the item in r, and item is the entry in the list
             for index2, item in enumerate(r):
+                p_load = []
                 # get the list of state vectors
                 robot_state_vectors = vector_states_buffer[item][0:NUM_MODULES]
-                 # add corresponding action
-                # t = vector_actions_buffer[item][self.module_number - 1]
-                # robot_state_vectors.append(t)
+                # current pre_payload [[1, 0, 0], [1, 0, 0], [1, 0, 0], [[0, 1, 0, 0, 1, 0, 0, 0, 0]], [array([0., 1., 0.])], [[0, 0, 0, 0, 0, 0, 0, 0, 0.00017779984093032713]]]
+                p_load.append(list(itertools.chain(*vector_actions_buffer[item][0:NUM_MODULES])))
                 if self.module_number == 1:
-                    print(f"state vectors >>> {robot_state_vectors}")
+                    print(f"p_load >>> {p_load}")
+                # add corresponding actions
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                #     print(f"actions >>> {vector_actions_buffer[item]}")
+                #     print(f"t_action >>> {t_action}")
+                t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                robot_state_vectors.append([t_action])
+
+                p_load.append(list(itertools.chain(*vector_actions_buffer[item])))
+                if self.module_number == 1:
+                    print(f"p_load >>> {p_load}")
+
                 # add corresponding mean action
                 if self.module_number == 1:
-                    print(f"Mean action >>> {vector_mactions_buffer[item]}")
+                    # print(f"actions >>> {temp_action}")
+                    # print(f"mean_actions >>> {vector_mactions_buffer[item]}")
+                    print(f"mean_actions >>> {vector_all_mactions_buffer[item]}")
 
-                robot_state_vectors.append(vector_mactions_buffer[item])
+                p_load.append(list(itertools.chain(*vector_all_mactions_buffer[item])))
+                if self.module_number == 1:
+                    print(f"p_load >>> {p_load}")
+
+                robot_state_vectors.append([vector_mactions_buffer[item]])
+                t_reward = [0]*(self.number_of_modules - 1)
+                t_reward.append(temp_rewards[0])
+                t_reward = t_reward*self.number_of_modules
+
+                if self.module_number == 1:
+                    # print(f"actions >>> {temp_action}")
+                    print(f"t_reward >>> {t_reward}")
+                    print(f"temp_rewards[0] >>> {temp_rewards[0]}")
+                    print(f"item >>> {item}")
+                    print(f"index2 >>> {index2}")
+                    # t_reward[-1] = (temp_rewards[index2])
+                    print(f"reward >>> {t_reward}")
+                # t_reward[-1] = (temp_rewards[index2])
+
+                robot_state_vectors.append(t_reward)
+
+                p_load.append(t_reward)
+                if self.module_number == 1:
+                    print(f"p_load >>> {p_load}")
+
                 # convert a list of lists into a single list
-                temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
+                # temp_ = np.array(list(itertools.chain(*robot_state_vectors)))
                 if self.module_number == 1:
-                    print(f"Temp__ >>> {temp_} (shape) {temp_.shape}")
-                payload = self.payload_maker(temp_)
-                if self.module_number == 1:
-                    print(f"Payload >>> {payload}")
+                    print(f"pre payload_maker >>> {robot_state_vectors}")
+                # payload = self.payload_maker(temp_)
+                # payload = self.payload_maker(robot_state_vectors)
+                payload = self.payload_maker(p_load)
+                # if self.module_number == 1:
+                #     print(f"Payload >>> {payload}")
 
                 exit(11)
                 del temp_, robot_state_vectors
-                res = self.policy_net(payload)
+                res = self.policy_net([payload], dbg=True)
                 del payload
                 res = res.to('cpu')
 
@@ -151,13 +194,31 @@ class Agent:
             for index3, item in enumerate(r):
                 # get the list of state vectors
                 robot_state_vectors_ = vector_states__buffer[item][0:NUM_MODULES]
-                # add corresponding action
-                # t = vector_actions__buffer[item][self.module_number - 1]
-                # robot_state_vectors_.append(t)
+
+                # add corresponding actions
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                #     print(f"actions >>> {vector_actions_buffer[item]}")
+                #     print(f"t_action >>> {t_action}")
+                t_action = list(itertools.chain(*vector_actions_buffer[item]))
+                robot_state_vectors_.append(t_action)
+
                 # add corresponding mean action
-                robot_state_vectors_.append(vector_mactions__buffer[item])
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     print(f"mean_actions >>> {vector_mactions_buffer[item]}")
+
+                robot_state_vectors_.append(vector_mactions_buffer[item])
+                # if self.module_number == 1:
+                #     # print(f"actions >>> {temp_action}")
+                #     print(f"reward >>> {[temp_rewards[index1]]}")
+                robot_state_vectors_.append([
+                    [0]*((self.number_of_modules*self.number_of_modules) - 1).append(temp_rewards[index3])
+                ])
                 # convert a list of lists into a single list
                 temp_ = np.array(list(itertools.chain(*robot_state_vectors_)))
+
                 del robot_state_vectors_
                 payload = self.payload_maker(temp_)
                 del temp_
