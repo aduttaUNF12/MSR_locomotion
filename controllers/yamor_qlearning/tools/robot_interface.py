@@ -445,6 +445,7 @@ class Module(Supervisor):
                 self.prev_episode_mean_action.append(self.prev_mean_action)
 
                 self.episode_current_action.append(self.current_action)
+                # self.episode_current_action.append(self.global_actions)
 
                 # If Episode changed
                 if self.episode > self.prev_episode:
@@ -469,6 +470,7 @@ class Module(Supervisor):
                     self.replay_buf_mean_action.put(np.array(self.episode_mean_action))
                     self.replay_buf_state_.put(np.array(self.prev_state))
                     self.replay_buf_action.put(np.array(self.episode_current_action))
+
                     #
                     # if REPLAY_MEMORY_EPISODE == EPISODE_LIMIT:
                     #     # .clear() resets buffer index to 0
@@ -573,9 +575,10 @@ class Module(Supervisor):
             # 540-541 is for input with action
             # t = self.global_actions_vectors[self.bot_id-1]
             # robot_state_vectors.append(t)
-
-            # robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors[self.bot_id - 1])))
+            # robot_state_vectors.append(self.global_actions_vectors)
+            robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
             robot_state_vectors.append(self.mean_action_vector)
+            robot_state_vectors.append([self.reward])
 
             self.current_action = self.agent.choose_action(robot_state_vectors)[0]
             self.prev_states_vector = self.global_states_vectors
