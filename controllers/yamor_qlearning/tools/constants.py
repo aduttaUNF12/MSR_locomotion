@@ -6,11 +6,14 @@ EPSILON = 1
 GAMMA = 0.1
 MIN_EPSILON = 0.1
 T = 0.1
-# BATCH_SIZE = 32
-BATCH_SIZE = 5
-MAX_EPISODE = 20000
+BATCH_SIZE = 32
+# BATCH_SIZE = 10
+# MAX_EPISODE = 20000
+MAX_EPISODE = 7000
 # MAX_EPISODE = 5000
-EPISODE_LIMIT = 5010   # Limiting Replay Memory to 200 Episodes
+# EPISODE_LIMIT = 5010   # Limiting Replay Memory to 200 Episodes
+EPISODE_LIMIT = 6   # Limiting Replay Memory to 200 Episodes
+BUFFER_LIMIT = 200
 
 # TODO: make capacity 200k
 # MEMORY_CAPACITY = 10000  # this equals to a memory pool of over 4 mil spots, and with 5000 episodes each having 577

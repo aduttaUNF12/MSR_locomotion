@@ -17,7 +17,10 @@ class CNN(nn.Module):
         # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1) + (number_of_modules), out_channels=32, kernel_size=(1, 1)).to(self.device)
         # number_of_modules*7+1
         # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
+        # TODO: regular
         self.conv1 = nn.Conv2d(in_channels=(9*number_of_modules)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
+        # NO COM
+        # self.conv1 = nn.Conv2d(in_channels=7, out_channels=32, kernel_size=(1, 1)).to(self.device)
         self.bn1 = nn.BatchNorm2d(32, affine=False).to(self.device)
 
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(1, 1)).to(self.device)
@@ -30,7 +33,10 @@ class CNN(nn.Module):
         # x = torch.rand((32, 3*(number_of_modules + 1) + (number_of_modules))).to(self.device).view(32, 3*(number_of_modules + 1) + (number_of_modules), 1, 1)
 
         # x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
+        # TODO: regular
         x = torch.rand((32, (9*number_of_modules)+1)).to(self.device).view(32, (9*number_of_modules)+1, 1, 1)
+        # NO COM \/
+        # x = torch.rand((32, 7)).to(self.device).view(32, 7, 1, 1)
         self._to_linear = None
         self.convs(x)
 
@@ -105,9 +111,9 @@ class FCNN(nn.Module):
         self.to(self.device)  # send network to device
 
         # all states, all action, all mean actions, my reward (so +1)
-        # self.fc1 = nn.Linear((9*number_of_modules) + 1, 32).to(self.device)
+        self.fc1 = nn.Linear((9*number_of_modules) + 1, 32).to(self.device)
 
-        self.fc1 = nn.Linear((2*number_of_modules) + 1, 32).to(self.device)
+        # self.fc1 = nn.Linear((2*number_of_modules) + 1, 32).to(self.device)
         self.fc2 = nn.Linear(32, 64).to(self.device)
         self.fc3 = nn.Linear(64, self.n_actions).to(self.device)
 
