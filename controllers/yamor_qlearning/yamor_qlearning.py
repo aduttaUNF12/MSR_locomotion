@@ -13,8 +13,8 @@ __version__ = '09.13.21'
 if __name__ == '__main__':
     # global NN_TYPE
     # TODO: for now the NN selector is a string variable
-    NN_TYPE = "FCNN"
-    # NN_TYPE = "CNN"
+    # NN_TYPE = "FCNN"
+    NN_TYPE = "CNN"
 
     # TODO: make selection for regular buffer and priority buffer
 
@@ -55,6 +55,7 @@ if __name__ == '__main__':
         TOTAL_ELAPSED_TIME += module.timeStep / 1000.0
         module.total_time_elapsed = TOTAL_ELAPSED_TIME
         if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
+        # if 0 <= TOTAL_ELAPSED_TIME % 2 <= 1:
         # if 0 <= TOTAL_ELAPSED_TIME % 30 <= 1:
         # if 0 <= TOTAL_ELAPSED_TIME % 5 <= 1:
             if not assign_:
