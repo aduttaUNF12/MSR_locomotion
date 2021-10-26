@@ -6,6 +6,7 @@ import random
 import torch
 
 from .constants import *
+from .loggers import path_maker
 
 
 
@@ -83,6 +84,9 @@ class Agent:
                  vector_states__buffer=None, vector_actions_buffer=None,
                  vector_all_mactions_buffer=None, episode=None):
         self.policy_net.optimizer.zero_grad()
+
+        # TODO: make a best episode tracker
+        # TODO: matlab basicfitting linear
 
         # if number of passed episodes is less than BUFFER_LIMIT (maximum number of inputs in buffer)
         if episode < BUFFER_LIMIT:
@@ -171,13 +175,11 @@ class Agent:
         self.policy_net.optimizer.step()
         self.decrement_epsilon()
         if True:
-            # if EPISODE % UPDATE_PERIOD == 0 and self.updated is False:
-            # if self.updated is False:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{episode}")
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
-            if BASE_LOGS_FOLDER is not None:
-                torch.save(self.target_net.state_dict(), os.path.join(BASE_LOGS_FOLDER, "agent.pt"))
+            current_run = path_maker()
+            torch.save(self.target_net.state_dict(), os.path.join(current_run, "agent.pt"))
 
             self.updated = True
         elif EPISODE % UPDATE_PERIOD != 0:

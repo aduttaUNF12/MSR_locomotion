@@ -1,23 +1,22 @@
+import os.path
 import sys
+import argparse
 
 from tools.networks import CNN, FCNN
-from tools.constants import *
+from tools.constants import MAX_EPISODE, NUM_MODULES, EPISODE, LEADER_ID, NN_TYPE
 from tools.robot_interface import Module
+from tools.loggers import path_maker
 
 
-__version__ = '09.13.21'
-# TODO: fix the modular seperation and imports
-# TODO: fix the buffers
-# TODO: fix the constants.py
+__version__ = '10.26.21'
 # TODO: add more documentation
+
+
+
+
 if __name__ == '__main__':
-    # global NN_TYPE
-    # TODO: for now the NN selector is a string variable
-    # NN_TYPE = "FCNN"
-    NN_TYPE = "CNN"
-
     # TODO: make selection for regular buffer and priority buffer
-
+    # TODO: add args and kwargs and other feature selection
     if NN_TYPE == "FCNN":
         target_net = FCNN(NUM_MODULES, 0.001, 3)
         policy_net = FCNN(NUM_MODULES, 0.001, 3)
@@ -34,7 +33,7 @@ if __name__ == '__main__':
     eps_history = []
     filename = "null"
 
-    module = Module(target_net, policy_net, NN_TYPE)
+    module = Module(target_net, policy_net)
     assign_ = False
     learn = True
     i = 0
@@ -45,6 +44,8 @@ if __name__ == '__main__':
     print(f"Finished buffer period in: {time.time()-start_time} ===== {time.strftime('%H:%M:%S', time.localtime())}")
 
     last_episode = time.time()
+    total_elapsed_time = 0
+
     while module.step(module.timeStep) != -1:
         i = 0
         while i < 1000:
@@ -52,12 +53,10 @@ if __name__ == '__main__':
 
         module.learn()
         module.t += module.timeStep / 1000.0
-        TOTAL_ELAPSED_TIME += module.timeStep / 1000.0
-        module.total_time_elapsed = TOTAL_ELAPSED_TIME
-        if 0 <= TOTAL_ELAPSED_TIME % 60 <= 1:
-        # if 0 <= TOTAL_ELAPSED_TIME % 2 <= 1:
-        # if 0 <= TOTAL_ELAPSED_TIME % 30 <= 1:
-        # if 0 <= TOTAL_ELAPSED_TIME % 5 <= 1:
+        total_elapsed_time += module.timeStep / 1000.0
+        module.total_time_elapsed = total_elapsed_time
+
+        if 0 <= total_elapsed_time % 60 <= 1:
             if not assign_:
                 EPISODE += 1
                 module.episode = EPISODE
@@ -75,6 +74,8 @@ if __name__ == '__main__':
         else:
             # assign_ is a temp needed to prevent infinite loop on the first Episode
             assign_ = False
+
+        # if EPISODE > MAX_EPISODE:
         if EPISODE > MAX_EPISODE:
             end = time.time()
             if module.bot_id == LEADER_ID:
@@ -85,4 +86,7 @@ if __name__ == '__main__':
                 print(f"Runtime: {temp/60} mins")
                 print(f"Runtime: {temp/60/60} hours")
                 print("LOGGING OFF")
-            exit()
+                with open(os.path.join(path_maker(), "time_stats.txt"), "w") as fin:
+                    fin.write(f"Runtime: {temp} secs\nRuntime: {temp/60} mins\nRuntime: {temp/60/60} hours\n")
+            module.simulationQuit(0)
+            exit(0)

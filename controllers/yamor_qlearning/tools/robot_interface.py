@@ -7,7 +7,7 @@ from collections import deque
 
 import numpy as np
 
-from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON, MEMORY_CAPACITY, T, BATCH_SIZE, LEADER_ID, EPISODE_LIMIT
+from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON, T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE
 from .agent import Agent
 from .buffers import ReplayBuffer
 from .loggers import writer
@@ -23,7 +23,7 @@ class Action:
 
 # robot module instance
 class Module(Supervisor):
-    def __init__(self, target_net, policy_net, nn_type):
+    def __init__(self, target_net, policy_net):
         Supervisor.__init__(self)
         #  webots section
         self.bot_id = int(self.getName()[7])
@@ -35,7 +35,6 @@ class Module(Supervisor):
         self.prev_episode_mean_action = []
         self.episode_current_action = []
         # self.module = module
-        self.nn_type = nn_type
         self.episode = 1
         self.total_time_elapsed = 0
         self.self_message = bytes
@@ -118,17 +117,17 @@ class Module(Supervisor):
         self.episode_prev_states_temp = []
         self.episode_single_action_temp = []
 
-        self.replay_buf_reward = deque(maxlen=200)
-        self.replay_buf_action = deque(maxlen=200)
-        self.replay_buf_single_action = deque(maxlen=200)
-        self.replay_buf_state = deque(maxlen=200)
-        self.replay_buf_state_ = deque(maxlen=200)
-        self.replay_buf_mean_action = deque(maxlen=200)
+        self.replay_buf_reward = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_action = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_single_action = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_state = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_state_ = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_mean_action = deque(maxlen=BUFFER_LIMIT)
 
         # making all modules have NN
         self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, gamma=GAMMA,
                            epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON,
-                           target_net=target_net, policy_net=policy_net, nn_type=nn_type)
+                           target_net=target_net, policy_net=policy_net, nn_type=NN_TYPE)
 
         self.buffer_overflow = 0
         self.state_changer()
@@ -411,7 +410,7 @@ class Module(Supervisor):
                     if self.bot_id == LEADER_ID:
                         # logger
                         writer(self.bot_id, NUM_MODULES, self.total_time_elapsed,
-                               self.episode_reward, self.loss, self.episode, self.nn_type)
+                               self.episode_reward, self.loss, self.episode, NN_TYPE)
 
                     self.episode_reward = 0
                     self.episode_mean_action.clear()
