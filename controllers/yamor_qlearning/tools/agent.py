@@ -75,7 +75,7 @@ class Agent:
         state_action_values = []
         expected_state_action_values = []
         #
-        # with open(f"TESTING_FUCKING_OUTPUTS_{self.module_number}", "w") as fin:
+        # with open(f"TESTING_OUTPUTS_{self.module_number}", "w") as fin:
         #     fin.write("SAP ======================\n")
         #     for i in sap:
         #         fin.write(f"{i} == ({len(i[0])})\n")
