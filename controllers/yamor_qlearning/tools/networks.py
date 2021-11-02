@@ -21,8 +21,8 @@ class CNN(nn.Module):
         # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
         # TODO: regular
         if COMMUNICATION:
-            # self.conv1 = nn.Conv2d(in_channels=(9*number_of_modules)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
-            self.conv1 = nn.Conv2d(in_channels=18, out_channels=32, kernel_size=(1, 1)).to(self.device)
+            self.conv1 = nn.Conv2d(in_channels=(9*number_of_modules)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
+            # self.conv1 = nn.Conv2d(in_channels=18, out_channels=32, kernel_size=(1, 1)).to(self.device)
         else:
             self.conv1 = nn.Conv2d(in_channels=(number_of_modules*2)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
 
@@ -40,8 +40,8 @@ class CNN(nn.Module):
         # x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
         # TODO: regular
         if COMMUNICATION:
-            # x = torch.rand((32, (9*number_of_modules)+1)).to(self.device).view(32, (9*number_of_modules)+1, 1, 1)
-            x = torch.rand((32, 18)).to(self.device).view(32, 18, 1, 1)
+            x = torch.rand((32, (9*number_of_modules)+1)).to(self.device).view(32, (9*number_of_modules)+1, 1, 1)
+            # x = torch.rand((32, 18)).to(self.device).view(32, 18, 1, 1)
         else:
             x = torch.rand((32, (number_of_modules*2)+1)).to(self.device).view(32, (number_of_modules*2)+1, 1, 1)
 

@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON,\
-    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION
+    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION, EPSILON_DECAY
 from .agent import Agent
 from .buffers import ReplayBuffer
 from .loggers import writer, path_maker
@@ -130,8 +130,8 @@ class Module(Supervisor):
         self.replay_buf_mean_action = deque(maxlen=BUFFER_LIMIT)
 
         # making all modules have NN
-        self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, gamma=GAMMA,
-                           epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON,
+        self.agent = Agent(self.bot_id, NUM_MODULES, n_actions=3, gamma=GAMMA,
+                           epsilon=EPSILON, eps_dec=EPSILON_DECAY, eps_min=MIN_EPSILON,
                            target_net=target_net, policy_net=policy_net, nn_type=NN_TYPE)
 
         self.buffer_overflow = 0
@@ -398,13 +398,13 @@ class Module(Supervisor):
                 self.episode_states_temp.extend([self.global_states_vectors])
 
 
-                if self.episode == 3:
-                    if self.bot_id == 1:
-                        print(self.global_states_vectors)
-                        print(self.global_actions_vectors)
-                        print(self.global_mean_action_vectors)
-                        print(self.reward)
-                    exit(321)
+                # if self.episode == 3:
+                #     if self.bot_id == 1:
+                #         print(self.global_states_vectors)
+                #         print(self.global_actions_vectors)
+                #         print(self.global_mean_action_vectors)
+                #         print(self.reward)
+                #     exit(321)
                 # episode previous state vectors for all robots
 
                 # if self.bot_id == 1:
@@ -498,14 +498,14 @@ class Module(Supervisor):
                                 # adding previous state
                                 robot_state__vectors = list(itertools.chain(*self.replay_buf_state_[part][step]))
                                 # adding actions
-                                # robot_state_vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
-                                # robot_state__vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
+                                robot_state_vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
+                                robot_state__vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
                                 # adding mean actions
                                 robot_state_vectors += list(itertools.chain(*self.replay_buf_mean_action[part][step]))
                                 robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action[part][step]))
                                 # adding reward
-                                # robot_state_vectors.append(self.replay_buf_reward[part][step])
-                                # robot_state__vectors.append(self.replay_buf_reward[part][step])
+                                robot_state_vectors.append(self.replay_buf_reward[part][step])
+                                robot_state__vectors.append(self.replay_buf_reward[part][step])
                             else:
                                 # adding states
                                 robot_state_vectors = list(itertools.chain(*self.replay_buf_state[part][step][self.bot_id-1]))
@@ -533,9 +533,9 @@ class Module(Supervisor):
             if COMMUNICATION:
                 # get the array of state vectors
                 robot_state_vectors = list(itertools.chain(*self.global_states_vectors[0:NUM_MODULES]))
-                # robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
+                robot_state_vectors += (list(itertools.chain(*self.global_actions_vectors)))
                 robot_state_vectors += (list(itertools.chain(*self.global_mean_action_vectors)))
-                # robot_state_vectors.append(self.reward)
+                robot_state_vectors.append(self.reward)
             else:
                 # get the array of state vectors
                 t_action = self.global_states_vectors[0:NUM_MODULES][self.bot_id-1]
@@ -543,7 +543,7 @@ class Module(Supervisor):
                 robot_state_vectors += self.global_actions_vectors[self.bot_id-1]
                 robot_state_vectors.append(self.reward)
             try:
-                self.current_action = self.agent.choose_action(robot_state_vectors)[0]
+                self.current_action = self.agent.choose_action(robot_state_vectors, self.episode)[0]
             except TypeError:
                 print(f"Error with input: {robot_state_vectors} line 580")
                 exit(222)

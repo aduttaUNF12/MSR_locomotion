@@ -14,12 +14,11 @@ class Agent:
     # policy_net = does all of the training and tests
     # target_net = final network
 
-    def __init__(self, module_number, number_of_modules, n_actions, lr, gamma=0.99,
-                 epsilon=1, eps_dec=1e-5, eps_min=0.01, target_net=None, policy_net=None, nn_type=None):
+    def __init__(self, module_number, number_of_modules, n_actions=None, gamma=None,
+                 epsilon=None, eps_dec=None, eps_min=None, target_net=None, policy_net=None, nn_type=None):
         self.module_number = module_number   # only used for logging
         self.number_of_modules = number_of_modules
         self.n_actions = n_actions
-        self.lr = lr
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_dec = eps_dec
@@ -42,8 +41,8 @@ class Agent:
         else:
             if COMMUNICATION:
                 try:
-                    # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (9*NUM_MODULES)+1, 1, 1)
-                    payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 18, 1, 1)
+                    payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (9*NUM_MODULES)+1, 1, 1)
+                    # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 18, 1, 1)
                 except RuntimeError:
                     # if self.module_number == 1:
                     print(f"temp_ >>> ({temp_}_ ({len(temp_)})")
@@ -53,8 +52,10 @@ class Agent:
         return payload
 
     # Greedy action selection
-    def choose_action(self, module_actions):
-        if random.random() < (1 - self.epsilon):
+    def choose_action(self, module_actions, episode):
+        sample = random.random()
+        eps_threshold = self.eps_min + (self.epsilon - self.eps_min) * math.exp(-1 * episode / self.eps_dec)
+        if sample > eps_threshold:
             payload = self.payload_maker(module_actions)
             action = self.policy_net.forward(payload)
             return [np.argmax(action.to('cpu').detach().numpy())]
@@ -118,7 +119,6 @@ class Agent:
 
         # if self.module_number == 1:
         #     print(f"input values >>> {t}\nout values >>> {expected_state_action_values}")
-
         # state_action_values = torch.tensor(state_action_values).to(self.target_net.device)
         expected_state_action_values = torch.tensor(expected_state_action_values).to(self.target_net.device)
         # loss = self.policy_net.loss(state_action_values, expected_state_action_values)
@@ -127,7 +127,7 @@ class Agent:
         # TODO figure out why loss is astronomical
         loss.backward()
         self.policy_net.optimizer.step()
-        self.decrement_epsilon()
+        # self.decrement_epsilon()
         if True:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{episode}")
             self.target_net.load_state_dict(self.policy_net.state_dict())
