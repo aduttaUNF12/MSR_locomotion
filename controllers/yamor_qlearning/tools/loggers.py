@@ -1,5 +1,6 @@
+import math
 import os
-from .constants import DATE_TODAY, NUM_MODULES
+from .constants import DATE_TODAY, NUM_MODULES, EPSILON_DECAY, EPSILON, MIN_EPSILON
 
 
 def path_maker():
@@ -34,7 +35,7 @@ def writer(name, num_of_bots, time_step, reward, loss, episode, nn_type):
     file_name = "{}_{}_MODULES_{}.txt".format(nn_type, num_of_bots, name)
     file_path = os.path.join(current_run, file_name)
     with open(file_path, "a") as fin:
-        fin.write('{},{},{},{}\n'.format(time_step, reward, loss, episode))
+        fin.write('{},{},{},{},{}\n'.format(time_step, reward, loss, episode, (MIN_EPSILON + (EPSILON - MIN_EPSILON)*math.exp(-1 * episode/EPSILON_DECAY))))
 
 
 def logger(**kwargs):
