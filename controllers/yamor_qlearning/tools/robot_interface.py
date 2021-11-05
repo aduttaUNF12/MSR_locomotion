@@ -291,7 +291,7 @@ class Module(Supervisor):
     # Calculates the mean of the action vectors
     def calc_mean_action_vector(self):
         # Making a base vector the shape of (1, NUM_MODULES)
-        a = [0]*NUM_MODULES
+        a = [0]*3  # 3 because number of actions is 3
 
         for m in range(NUM_MODULES):
             # self.bot_id - 1 since bot ids start with 1 while arrays with index of 0
@@ -300,6 +300,13 @@ class Module(Supervisor):
                     a = np.add(a, self.global_actions_vectors[m])
                 except IndexError:
                     pass
+                except ValueError:
+                    if self.bot_id == 1:
+                        print(f"global actions >>> {self.global_actions_vectors} ({len(self.global_actions_vectors)})")
+                        print(f"range >>> {range(NUM_MODULES)}")
+                        print(f"m >>> {m}")
+                        print(f"a >>> {a} ({len(a)})")
+                    exit(11)
 
         self.prev_mean_action_vector = self.mean_action_vector
         # NUM_MODULE - 1 since we are taking a mean of all except current modules
@@ -310,7 +317,7 @@ class Module(Supervisor):
         # mean action for all modules
         # m represents current module number
         for m in range(NUM_MODULES+1)[1:]:
-            a = [0]*NUM_MODULES
+            a = [0]*3
             # mi represents module to be added
             for mi in range(NUM_MODULES):
                 # if m does not equal current module number - 1; -1 because module

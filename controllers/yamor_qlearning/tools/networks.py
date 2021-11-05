@@ -3,14 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from .constants import COMMUNICATION
+from .constants import COMMUNICATION, NUM_MODULES
 
 
 # the NN itself
 class CNN(nn.Module):
-    def __init__(self, number_of_modules, lr, n_actions):
+    def __init__(self, lr, n_actions):
         super(CNN, self).__init__()
-        self.number_of_modules = number_of_modules
+        self.number_of_modules = NUM_MODULES
         self.n_actions = n_actions
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
@@ -21,10 +21,10 @@ class CNN(nn.Module):
         # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
         # TODO: regular
         if COMMUNICATION:
-            self.conv1 = nn.Conv2d(in_channels=(9*number_of_modules)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
+            self.conv1 = nn.Conv2d(in_channels=(9*self.number_of_modules)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
             # self.conv1 = nn.Conv2d(in_channels=18, out_channels=32, kernel_size=(1, 1)).to(self.device)
         else:
-            self.conv1 = nn.Conv2d(in_channels=(number_of_modules*2)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
+            self.conv1 = nn.Conv2d(in_channels=(self.number_of_modules*2)+1, out_channels=32, kernel_size=(1, 1)).to(self.device)
 
         self.bn1 = nn.BatchNorm2d(32, affine=False).to(self.device)
 
@@ -40,10 +40,10 @@ class CNN(nn.Module):
         # x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
         # TODO: regular
         if COMMUNICATION:
-            x = torch.rand((32, (9*number_of_modules)+1)).to(self.device).view(32, (9*number_of_modules)+1, 1, 1)
+            x = torch.rand((32, (9*self.number_of_modules)+1)).to(self.device).view(32, (9*self.number_of_modules)+1, 1, 1)
             # x = torch.rand((32, 18)).to(self.device).view(32, 18, 1, 1)
         else:
-            x = torch.rand((32, (number_of_modules*2)+1)).to(self.device).view(32, (number_of_modules*2)+1, 1, 1)
+            x = torch.rand((32, (self.number_of_modules*2)+1)).to(self.device).view(32, (self.number_of_modules*2)+1, 1, 1)
 
         self._to_linear = None
         self.convs(x)
@@ -111,18 +111,18 @@ class CNN(nn.Module):
 
 
 class FCNN(nn.Module):
-    def __init__(self, number_of_modules, lr, n_actions):
+    def __init__(self, lr, n_actions):
         super(FCNN, self).__init__()
-        self.number_of_modules = number_of_modules
+        self.number_of_modules = NUM_MODULES
         self.n_actions = n_actions
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
 
         # all states, all action, all mean actions, my reward (so +1)
         if COMMUNICATION:
-            self.fc1 = nn.Linear((9*number_of_modules) + 1, 32).to(self.device)
+            self.fc1 = nn.Linear((9*self.number_of_modules) + 1, 32).to(self.device)
         else:
-            self.fc1 = nn.Linear((2*number_of_modules) + 1, 32).to(self.device)
+            self.fc1 = nn.Linear((2*self.number_of_modules) + 1, 32).to(self.device)
         self.fc2 = nn.Linear(32, 64).to(self.device)
         self.fc3 = nn.Linear(64, self.n_actions).to(self.device)
 

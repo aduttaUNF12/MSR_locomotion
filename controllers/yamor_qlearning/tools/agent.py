@@ -55,7 +55,8 @@ class Agent:
     def choose_action(self, module_actions, episode):
         sample = random.random()
         eps_threshold = self.eps_min + (self.epsilon - self.eps_min) * math.exp(-1 * episode / self.eps_dec)
-        if sample > eps_threshold:
+        # if sample > eps_threshold:
+        if sample < (1 - self.epsilon):
             payload = self.payload_maker(module_actions)
             action = self.policy_net.forward(payload)
             return [np.argmax(action.to('cpu').detach().numpy())]
@@ -127,7 +128,7 @@ class Agent:
         # TODO figure out why loss is astronomical
         loss.backward()
         self.policy_net.optimizer.step()
-        # self.decrement_epsilon()
+        self.decrement_epsilon()
         if True:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{episode}")
             self.target_net.load_state_dict(self.policy_net.state_dict())
