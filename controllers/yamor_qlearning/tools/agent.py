@@ -25,7 +25,6 @@ class Agent:
         self.eps_dec = eps_dec
         self.eps_min = eps_min
         self.updated = False
-
         self.action_space = [i for i in range(self.n_actions)]
 
         # q estimate
@@ -41,30 +40,26 @@ class Agent:
         if self.NN_TYPE == "FCNN":
             payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device)
         else:
-            # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1), 1, 1)
-            # TODO: regular
-            # if self.module_number == 1:
-            #     print(f"temp_ >>> {temp_} ({len(temp_)})")
-            try:
-                payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (9*NUM_MODULES)+1, 1, 1)
-            except RuntimeError:
-                if self.module_number == 1:
+            if COMMUNICATION:
+                try:
+                    # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (9*NUM_MODULES)+1, 1, 1)
+                    # if self.module_number == 1:
+                    #     print(f"temp_ >>> {torch.tensor(temp_, dtype=torch.float)} (shape) ({torch.tensor(temp_, dtype=torch.float).shape})")
+                    #     print(f"temp_ >>> {torch.tensor(temp_, dtype=torch.float).view(12, 1, 1, 3)} (shape) ({torch.tensor(temp_, dtype=torch.float).view(12, 1, 1, 3).shape})")
+                    # exit(11)
+                    payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device).view(4, 1, 1, 9)
+                except RuntimeError:
+                    # if self.module_number == 1:
                     print(f"temp_ >>> ({temp_}_ ({len(temp_)})")
-                exit(222)
-            # NO COM \/
-            # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 7, 1, 1)
-            # for action input
-            # payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, 3*(NUM_MODULES + 1) + NUM_MODULES, 1, 1)
+                    exit(int(f"20{self.module_number}"))
+            else:
+                payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (NUM_MODULES*2)+1, 1, 1)
         return payload
 
     # Greedy action selection
     def choose_action(self, module_actions):
         if random.random() < (1 - self.epsilon):
-            # make list of lists into a single list, and turn it into numpy array
-            # TODO: regular
-            temp_ = np.array(list(itertools.chain(*module_actions)))
-            # temp_ = module_actions
-            payload = self.payload_maker(temp_)
+            payload = self.payload_maker(module_actions)
             action = self.policy_net.forward(payload)
             return [np.argmax(action.to('cpu').detach().numpy())]
         else:
@@ -78,79 +73,43 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
-    # TODO: document what each buffer contains
-    def optimize(self, batch=False, episode_buffer=None, action_buffer=None,
-                 reward_buffer=None, vector_states_buffer=None,
-                 vector_states__buffer=None, vector_actions_buffer=None,
-                 vector_all_mactions_buffer=None, episode=None):
+    def optimize(self, episode=None, sap=None, esap=None):
         self.policy_net.optimizer.zero_grad()
-
-        # TODO: make a best episode tracker
-        # TODO: matlab basicfitting linear
-
-        # if number of passed episodes is less than BUFFER_LIMIT (maximum number of inputs in buffer)
-        if episode < BUFFER_LIMIT:
-            # just generating a list form 0-episode
-            episodes = range(episode-1)
-        else:
-            # just generating a list from 0-BUFFER_LIMIT
-            episodes = range(BUFFER_LIMIT)
-        # excluding 1 from episodes because the first run has one or more faulty inputs
-        sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
-        del episodes
 
         state_action_values = []
         expected_state_action_values = []
+        #
+        # with open(f"TESTING_OUTPUTS_{self.module_number}", "w") as fin:
+        #     fin.write("SAP ======================\n")
+        #     for i in sap:
+        #         fin.write(f"{i} == ({len(i[0])})\n")
+        #     fin.write("ESAP ======================\n")
+        #     for e in esap:
+        #         fin.write(f"{e} == ({len(e[0])})\n")
 
-        # sample (list) contains indexes of Episodes which are used in training
-        for part in sample:
-            number_of_steps = range(len(vector_states_buffer[part])-1)
-            for step in number_of_steps:
-                # turning all of the lists of lists into one big list
-                # adding states
-                robot_state_vectors = list(itertools.chain(*vector_states_buffer[part][step]))
-                # adding actions
-                robot_state_vectors += list(itertools.chain(*vector_actions_buffer[part][step]))
-                # adding mean actions
-                robot_state_vectors += list(itertools.chain(*vector_all_mactions_buffer[part][step]))
-                # adding reward
-                robot_state_vectors.append(reward_buffer[part][step])
-                # making a payload to send to the NN
-                payload = self.payload_maker(robot_state_vectors)
-                # sending payload to the NN
-                res = self.policy_net(payload)
-                del payload  # garbage collection
-                robot_state_vectors.clear()   # garbage collection
-                res = res.to('cpu')   # sending res to cpu to clear some VRAM
-                action = action_buffer[part][step]  # getting action
-                state_action_values.append(torch.tensor(res[action],  # getting Q-Value
-                                                        dtype=torch.float, requires_grad=True).to('cpu'))
-                del action, res
+        for s in sap:
+            # s = [[payload], action]
+            # making a payload to send to the NN
+            payload = self.payload_maker(s[0])
+            # sending payload to the NN
+            res = self.policy_net(payload)
+            del payload  # garbage collection
+            res = res.to('cpu')   # sending res to cpu to clear some VRAM
+            state_action_values.append(torch.tensor(res[s[1]],  # getting Q-Value
+                                                    dtype=torch.float, requires_grad=True).to('cpu'))
+            del res
 
-        for part in sample:
-            number_of_steps = range(len(vector_states__buffer[part])-1)
-            for step in number_of_steps:
-                # turning all of the lists of lists into one big list
-                # adding previous states states
-                robot_state_vectors = list(itertools.chain(*vector_states__buffer[part][step]))
-                # adding actions
-                robot_state_vectors += list(itertools.chain(*vector_actions_buffer[part][step]))
-                # adding mean actions
-                robot_state_vectors += list(itertools.chain(*vector_all_mactions_buffer[part][step]))
-                # adding reward
-                robot_state_vectors.append(reward_buffer[part][step])
-                # making a payload to send to the NN
-                payload = self.payload_maker(robot_state_vectors)
-                # sending payload to the NN
-                res = self.target_net(payload).to('cpu').detach()
-                del payload  # garbage collection
-                robot_state_vectors.clear()   # garbage collection
-                # getting index of the largest value in res
-                max_index = np.argmax(res)
-                expected_state_action_values.append((res[max_index].to('cpu').detach() * self.gamma) + reward_buffer[part][step])
-                del res
-
-        del sample
+        for s in esap:
+            # s = [[payload], reward]
+            # making a payload to send to the NN
+            payload = self.payload_maker(s[0])
+            # sending payload to the NN
+            res = self.target_net(payload).to('cpu').detach()
+            del payload  # garbage collection
+            # getting index of the largest value in res
+            max_index = np.argmax(res)
+            expected_state_action_values.append((res[max_index].to('cpu').detach() * self.gamma) + s[1])
+            del res
 
         state_action_values = torch.stack(state_action_values)
         state_action_values = state_action_values.double().float()
@@ -170,7 +129,6 @@ class Agent:
         loss = self.policy_net.loss(state_action_values.to(self.target_net.device), expected_state_action_values.double().float())
         del expected_state_action_values, state_action_values
         # TODO figure out why loss is astronomical
-        # TODO: run for 20k episodes for current config
         loss.backward()
         self.policy_net.optimizer.step()
         self.decrement_epsilon()
@@ -186,4 +144,3 @@ class Agent:
             self.updated = False
 
         return loss
-

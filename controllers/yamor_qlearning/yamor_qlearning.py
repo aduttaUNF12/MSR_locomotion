@@ -12,10 +12,7 @@ __version__ = '10.26.21'
 # TODO: add more documentation
 
 
-
-
 if __name__ == '__main__':
-    # TODO: make selection for regular buffer and priority buffer
     # TODO: add args and kwargs and other feature selection
     if NN_TYPE == "FCNN":
         target_net = FCNN(NUM_MODULES, 0.001, 3)

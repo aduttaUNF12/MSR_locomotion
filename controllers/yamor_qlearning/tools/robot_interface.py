@@ -1,16 +1,19 @@
 import struct
 import math
 import sys
+import os
 import itertools
 import collections
 from collections import deque
 
 import numpy as np
+import torch
 
-from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON, T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE
+from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON, \
+    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION
 from .agent import Agent
 from .buffers import ReplayBuffer
-from .loggers import writer
+from .loggers import writer, path_maker
 
 from controller import Supervisor
 
@@ -71,14 +74,14 @@ class Module(Supervisor):
         self.global_actions = [1]*NUM_MODULES
         self.global_states = [1]*NUM_MODULES
         self.global_mean_action_vectors = [1]*NUM_MODULES
-        self.global_states_vectors = []
-        self.global_states__vectors = [[0, 0, 0]*NUM_MODULES]
-        self.global_actions_vectors = []
-        self.global_prev_actions_vectors = []
-        self.mean_action_vector = []
+        self.global_states_vectors = [[0, 0, 0]]*NUM_MODULES
+        self.global_states__vectors = [[0, 0, 0]]*NUM_MODULES
+        self.global_actions_vectors = [[0, 0, 0]]*NUM_MODULES
+        self.global_prev_actions_vectors = [[0, 0, 0]]*NUM_MODULES
+        self.mean_action_vector = [0]*3
         self.mean_action = 0
-        self.prev_states_vector = []
-        self.prev_mean_action_vector = []
+        self.prev_states_vector = [0]*3
+        self.prev_mean_action_vector = [0]*3
         self.prev_mean_action = 0
         """
         states:  0 - min
@@ -105,6 +108,8 @@ class Module(Supervisor):
         self.min_batch = 0
         self.max_batch = 0
         self.recycles = 0
+
+        self.best_reward = 0
 
         # BUFFERS
         self.REPLAY_MEMORY_EPISODE = 1
@@ -227,12 +232,12 @@ class Module(Supervisor):
         self.global_actions_vectors = []
         # adds vector representation of the state to an array, [x, y, z]
         for action in self.global_actions:
-            if int(action) == 1:
-                self.global_actions_vectors.append([0, 0, 0])
-            elif int(action) == 0:
+            if int(action) == 0:
+                self.global_actions_vectors.append([0, 1, 0])
+            elif int(action) == 1:
                 self.global_actions_vectors.append([0, -1, 0])
             elif int(action) == 2:
-                self.global_actions_vectors.append([0, 1, 0])
+                self.global_actions_vectors.append([0, 0, 0])
             else:
                 print(f"[{self.bot_id}] Error with state_to_vectors !!!!!!!!!!!!!", file=sys.stderr)
                 exit(2)
@@ -250,6 +255,9 @@ class Module(Supervisor):
                 1 - zero
                 2 - max
        """
+        self.global_states__vectors = []
+        self.global_states__vectors.extend(self.global_states_vectors)
+
         self.global_states_vectors = []
         for state in self.global_states:
             if int(state) == 1:
@@ -300,11 +308,17 @@ class Module(Supervisor):
 
         all_vectors = []
         # mean action for all modules
-        for m in range(NUM_MODULES):
+        # m represents current module number
+        for m in range(NUM_MODULES+1)[1:]:
+            a = [0]*NUM_MODULES
+            # mi represents module to be added
             for mi in range(NUM_MODULES):
-                if m != (self.bot_id - 1):
+                # if m does not equal current module number - 1; -1 because module
+                #  numbers start with 1 and list indexing with 0, so we need to shift
+                #  by one to get accurate data
+                if mi != (m - 1):
                     try:
-                        a = np.add(a, self.global_actions_vectors[m])
+                        a = np.add(a, self.global_actions_vectors[mi])
                     except IndexError:
                         pass
             all_vectors.append(np.true_divide(a, (NUM_MODULES - 1)))
@@ -382,7 +396,21 @@ class Module(Supervisor):
                 self.episode_mean_actions_temp.extend([self.global_mean_action_vectors])
                 # episode state vectors for all robots
                 self.episode_states_temp.extend([self.global_states_vectors])
+
+
+                # if self.episode == 3:
+                #     if self.bot_id == 1:
+                #         print(self.global_states_vectors)
+                #         print(self.global_actions_vectors)
+                #         print(self.global_mean_action_vectors)
+                #         print(self.reward)
+                #     exit(321)
+
                 # episode previous state vectors for all robots
+
+                # if self.bot_id == 1:
+                #     print(f"global_states__vectors in training >>> {self.global_states__vectors}")
+
                 self.episode_prev_states_temp.extend([self.global_states__vectors])
 
                 self.episode_reward += self.reward
@@ -392,6 +420,27 @@ class Module(Supervisor):
 
                 # If Episode changed
                 if self.episode > self.prev_episode:
+                    # finding best Episode
+                    if self.best_reward < self.episode_reward:
+                        self.best_reward = self.episode_reward
+                        current_run = path_maker()
+                        torch.save(self.agent.policy_net.state_dict(),
+                                   os.path.join(current_run, f"best_episode_{self.bot_id}.pt"))
+                        with open(os.path.join(current_run, f"best_episode_{self.bot_id}.txt"), "w") as fin:
+                            fin.write("")
+                        with open(os.path.join(current_run, f"best_episode_{self.bot_id}.txt"), "a") as fin:
+                            fin.write(f"================= Module {self.bot_id}\n")
+                            fin.write(f"================= Rewards\n")
+                            for i in self.episode_reward_temp:
+                                fin.write(f"{i}, ")
+                            fin.write(f"\n================= States\n")
+                            for i in self.episode_states_temp:
+                                fin.write(f"{i}, ")
+                            fin.write(f"\n================= Actions\n")
+                            for i in self.episode_single_action_temp:
+                                fin.write(f"{i}, ")
+                            fin.write("\n")
+
                     self.replay_buf_reward.extend([self.episode_reward_temp])
                     self.replay_buf_state.extend([self.episode_states_temp])
                     self.replay_buf_mean_action.extend([self.episode_mean_actions_temp])
@@ -424,47 +473,89 @@ class Module(Supervisor):
                 # batch is at least at the minimal working size
                 if self.batch_ticks >= BATCH_SIZE:
                     # run the NN and collect loss
-                    self.loss = self.agent.optimize(
-                        batch=True, episode_buffer=self.ReplayMemory_EpisodeBuffer,
-                        action_buffer=self.replay_buf_single_action,
-                        reward_buffer=self.replay_buf_reward,
-                        vector_states_buffer=self.replay_buf_state,
-                        vector_states__buffer=self.replay_buf_state_,
-                        vector_actions_buffer=self.replay_buf_action,
-                        vector_all_mactions_buffer=self.replay_buf_mean_action,
-                        episode=self.episode
-                    )
+                    # TODO: do all payload creation here and pass the final to optimizer
+
+                    # if number of passed episodes is less than BUFFER_LIMIT (maximum number of inputs in buffer)
+                    if self.episode < BUFFER_LIMIT:
+                        # just generating a list form 0-episode
+                        episodes = range(self.episode-1)
+                    else:
+                        # just generating a list from 0-BUFFER_LIMIT
+                        episodes = range(BUFFER_LIMIT)
+
+                    # excluding 1 from episodes because the first run has one or more faulty inputs
+                    sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
+                    del episodes
+
+                    state_action_payloads = []
+                    expected_state_action_payloads = []
+
+                    for part in sample:
+                        number_of_steps = range(len(self.replay_buf_state[part]))
+                        for step in number_of_steps:
+                            if COMMUNICATION:
+                                # adding states
+                                robot_state_vectors = [list(itertools.chain(*self.replay_buf_state[part][step]))]
+                                # adding previous state
+                                robot_state__vectors = [list(itertools.chain(*self.replay_buf_state_[part][step]))]
+                                # adding actions
+                                robot_state_vectors.append(list(itertools.chain(*self.replay_buf_action[part][step])))
+                                robot_state__vectors.append(list(itertools.chain(*self.replay_buf_action[part][step])))
+                                # adding mean actions
+                                robot_state_vectors.append(list(itertools.chain(*self.replay_buf_mean_action[part][step])))
+                                robot_state__vectors.append(list(itertools.chain(*self.replay_buf_mean_action[part][step])))
+                                # adding reward
+                                robot_state_vectors.append([0, 0, self.replay_buf_reward[part][step]]*NUM_MODULES)
+                                robot_state__vectors.append([0, 0, self.replay_buf_reward[part][step]]*NUM_MODULES)
+                            else:
+                                # adding states
+                                robot_state_vectors = list(itertools.chain(*self.replay_buf_state[part][step][self.bot_id-1]))
+                                # adding previous state
+                                robot_state__vectors = list(itertools.chain(*self.replay_buf_state_[part][step][self.bot_id-1]))
+                                # adding actions
+                                robot_state_vectors += list(itertools.chain(*self.replay_buf_action[part][step][self.bot_id-1]))
+                                robot_state__vectors += list(itertools.chain(*self.replay_buf_action[part][step][self.bot_id-1]))
+                                # adding reward
+                                robot_state_vectors.append(self.replay_buf_reward[part][step])
+                                robot_state__vectors.append(self.replay_buf_reward[part][step])
+
+                            state_action_payloads.append([robot_state_vectors, self.replay_buf_single_action[part][step]])
+                            expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward[part][step]])
+
+                    self.loss = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
+                                                    esap=expected_state_action_payloads)
+                    state_action_payloads.clear()
+                    expected_state_action_payloads.clear()
                     self.batch_updated = True
                     self.batch_ticks = 0
 
             # set previous action option to the new one
             self.prev_actions = self.current_action
-            # get the array of state vectors
-            # TODO: regular
-            robot_state_vectors = self.global_states_vectors[0:NUM_MODULES]
-            # t_action = self.global_states_vectors[0:NUM_MODULES][self.bot_id-1]
-            # robot_state_vectors = t_action[0:3]
-            # 540-541 is for input with action
-            # t = self.global_actions_vectors[self.bot_id-1]
-            # robot_state_vectors.append(t)
-            # robot_state_vectors.append(self.global_actions_vectors)
-            # TODO: regular
-            robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
-            # robot_state_vectors += self.global_actions_vectors[self.bot_id-1]
-            # TODO: regular
-            robot_state_vectors.append(list(itertools.chain(*self.global_mean_action_vectors)))
-            # robot_state_vectors.append(self.mean_action_vector)
-            # TODO: regular
-            robot_state_vectors.append([self.reward])
-            # robot_state_vectors.append(self.reward)
+            if COMMUNICATION:
+                # get the array of state vectors
+                robot_state_vectors = [list(itertools.chain(*self.global_states_vectors[0:NUM_MODULES])),
+                                       list(itertools.chain(*self.global_actions_vectors)),
+                                       list(itertools.chain(*self.global_mean_action_vectors)), [0, 0, self.reward]*NUM_MODULES]
+            else:
+                # get the array of state vectors
+                t_action = self.global_states_vectors[0:NUM_MODULES][self.bot_id-1]
+                robot_state_vectors = t_action[0:3]
+                robot_state_vectors += self.global_actions_vectors[self.bot_id-1]
+                robot_state_vectors.append(self.reward)
             try:
                 self.current_action = self.agent.choose_action(robot_state_vectors)[0]
             except TypeError:
-                print(f"Error with input: {robot_state_vectors} line 580")
+                print(f"Error with input: {robot_state_vectors} line 547")
                 exit(222)
-            self.global_states__vectors = []
-            self.global_states__vectors.extend(self.global_states_vectors)
-            self.global_states_vectors = []
+
+            # if self.bot_id == 1:
+            #     print(f"after cleaning global_states__vectors >>> {self.global_states__vectors}")
+            # self.global_states__vectors = self.global_states_vectors
+            # if self.bot_id == 1:
+            #     print(f"after putting new info global_states__vectors >>> {self.global_states__vectors}")
+            #
+            # self.global_states_vectors = []
+
             # run the action and change the state
             self.state_changer()
             # notify others of current action
@@ -475,4 +566,3 @@ class Module(Supervisor):
             self.sts = None
             self.old_pos = self.gps.getValues()
             self.t = 0
-
