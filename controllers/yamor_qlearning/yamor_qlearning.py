@@ -15,11 +15,11 @@ __version__ = '10.26.21'
 if __name__ == '__main__':
     # TODO: add args and kwargs and other feature selection
     if NN_TYPE == "FCNN":
-        target_net = FCNN(NUM_MODULES, 0.001, 3)
-        policy_net = FCNN(NUM_MODULES, 0.001, 3)
+        target_net = FCNN(n_actions=3, lr=0.001)
+        policy_net = FCNN(n_actions=3, lr=0.001)
     elif NN_TYPE == "CNN":
-        target_net = CNN(0.001, 3)
-        policy_net = CNN(0.001, 3)
+        target_net = CNN(n_actions=3, lr=0.001)
+        policy_net = CNN(n_actions=3, lr=0.001)
     else:
         print("Enter the type of network to be used!!", file=sys.stderr)
         exit(1)

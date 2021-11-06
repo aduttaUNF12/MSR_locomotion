@@ -9,8 +9,8 @@ from collections import deque
 import numpy as np
 import torch
 
-from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON, \
-    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION
+from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON,\
+    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION, EPSILON_DECAY
 from .agent import Agent
 from .buffers import ReplayBuffer
 from .loggers import writer, path_maker
@@ -130,8 +130,8 @@ class Module(Supervisor):
         self.replay_buf_mean_action = deque(maxlen=BUFFER_LIMIT)
 
         # making all modules have NN
-        self.agent = Agent(self.bot_id, NUM_MODULES, 3, 0.001, gamma=GAMMA,
-                           epsilon=EPSILON, eps_dec=0.001, eps_min=MIN_EPSILON,
+        self.agent = Agent(self.bot_id, NUM_MODULES, n_actions=3, gamma=GAMMA,
+                           epsilon=EPSILON, eps_dec=EPSILON_DECAY, eps_min=MIN_EPSILON,
                            target_net=target_net, policy_net=policy_net, nn_type=NN_TYPE)
 
         self.buffer_overflow = 0
@@ -291,7 +291,7 @@ class Module(Supervisor):
     # Calculates the mean of the action vectors
     def calc_mean_action_vector(self):
         # Making a base vector the shape of (1, NUM_MODULES)
-        a = [0]*NUM_MODULES
+        a = [0]*3  # 3 because number of actions is 3
 
         for m in range(NUM_MODULES):
             # self.bot_id - 1 since bot ids start with 1 while arrays with index of 0
@@ -300,6 +300,13 @@ class Module(Supervisor):
                     a = np.add(a, self.global_actions_vectors[m])
                 except IndexError:
                     pass
+                except ValueError:
+                    if self.bot_id == 1:
+                        print(f"global actions >>> {self.global_actions_vectors} ({len(self.global_actions_vectors)})")
+                        print(f"range >>> {range(NUM_MODULES)}")
+                        print(f"m >>> {m}")
+                        print(f"a >>> {a} ({len(a)})")
+                    exit(11)
 
         self.prev_mean_action_vector = self.mean_action_vector
         # NUM_MODULE - 1 since we are taking a mean of all except current modules
@@ -310,7 +317,7 @@ class Module(Supervisor):
         # mean action for all modules
         # m represents current module number
         for m in range(NUM_MODULES+1)[1:]:
-            a = [0]*NUM_MODULES
+            a = [0]*3
             # mi represents module to be added
             for mi in range(NUM_MODULES):
                 # if m does not equal current module number - 1; -1 because module
@@ -405,7 +412,6 @@ class Module(Supervisor):
                 #         print(self.global_mean_action_vectors)
                 #         print(self.reward)
                 #     exit(321)
-
                 # episode previous state vectors for all robots
 
                 # if self.bot_id == 1:
@@ -543,7 +549,7 @@ class Module(Supervisor):
                 robot_state_vectors += self.global_actions_vectors[self.bot_id-1]
                 robot_state_vectors.append(self.reward)
             try:
-                self.current_action = self.agent.choose_action(robot_state_vectors)[0]
+                self.current_action = self.agent.choose_action(robot_state_vectors, self.episode)[0]
             except TypeError:
                 print(f"Error with input: {robot_state_vectors} line 547")
                 exit(222)
@@ -566,3 +572,4 @@ class Module(Supervisor):
             self.sts = None
             self.old_pos = self.gps.getValues()
             self.t = 0
+

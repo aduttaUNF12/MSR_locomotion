@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from .constants import NUM_MODULES, CEIL_MODE
+
+from .constants import COMMUNICATION, NUM_MODULES, CEIL_MODE
 
 
 # the NN itself
@@ -120,14 +121,18 @@ class CNN(nn.Module):
 
 
 class FCNN(nn.Module):
-    def __init__(self, number_of_modules, lr, n_actions):
+    def __init__(self, lr, n_actions):
         super(FCNN, self).__init__()
-        self.number_of_modules = number_of_modules
+        self.number_of_modules = NUM_MODULES
         self.n_actions = n_actions
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
 
-        self.fc1 = nn.Linear(3*(number_of_modules + 1), 32).to(self.device)
+        # all states, all action, all mean actions, my reward (so +1)
+        if COMMUNICATION:
+            self.fc1 = nn.Linear((9*self.number_of_modules) + 1, 32).to(self.device)
+        else:
+            self.fc1 = nn.Linear((2*self.number_of_modules) + 1, 32).to(self.device)
         self.fc2 = nn.Linear(32, 64).to(self.device)
         self.fc3 = nn.Linear(64, self.n_actions).to(self.device)
 
@@ -135,7 +140,12 @@ class FCNN(nn.Module):
         self.loss = nn.MSELoss()
 
     def forward(self, actions):
-        x = F.relu(self.fc1(actions))
-        x = F.relu(self.fc2(x))
+        # print(f"actions >>> {actions} (shape) {actions.shape}")
+        x = self.fc1(actions)
+        # print(f"fc1 done")
+        x = F.relu(x)
+        x = self.fc2(x)
+        # print(f"fc2 done")
+        x = F.relu(x)
         x = self.fc3(x)
         return x[0]

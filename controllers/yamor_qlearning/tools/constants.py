@@ -4,9 +4,10 @@ import math
 # NN params
 # NN_TYPE = "FCNN"
 NN_TYPE = "CNN"
-EPSILON = 1
+EPSILON = 0.9
 GAMMA = 0.1
-MIN_EPSILON = 0.1
+MIN_EPSILON = 0.05
+EPSILON_DECAY = 7000
 T = 0.1
 COMMUNICATION = True
 # AvgPool1d ceil_mode
@@ -14,19 +15,20 @@ CEIL_MODE = True
 
 # Episode params
 EPISODE = 0  # starting Episode number
-# MAX_EPISODE = 20000
+MAX_EPISODE = 20000
 # MAX_EPISODE = 7000
-MAX_EPISODE = 5000
+# MAX_EPISODE = 5000
 UPDATE_PERIOD = 10
 
 # Batch params
 REGULAR_BUFFER = False
-BATCH_SIZE = 36
+BATCH_SIZE = 64
+# BATCH_SIZE = 5
 # BATCH_SIZE = 10
 BATCH_PERCENT = 0.1
 if not REGULAR_BUFFER:
     BUFFER_LIMIT = int(MAX_EPISODE*BATCH_PERCENT) \
-        if math.modf(float(MAX_EPISODE*BATCH_PERCENT))[0] == 0 \
+        if math.modf(float(MAX_EPISODE*BATCH_PERCENT))[0] == 0\
         else int(math.modf(float(MAX_EPISODE*BATCH_PERCENT))[1])
 else:
     BUFFER_LIMIT = MAX_EPISODE
