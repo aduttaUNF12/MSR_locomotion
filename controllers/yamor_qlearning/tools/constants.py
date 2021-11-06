@@ -9,6 +9,8 @@ GAMMA = 0.1
 MIN_EPSILON = 0.1
 T = 0.1
 COMMUNICATION = True
+# AvgPool1d ceil_mode
+CEIL_MODE = True
 
 # Episode params
 EPISODE = 0  # starting Episode number

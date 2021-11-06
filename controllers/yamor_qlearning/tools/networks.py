@@ -2,71 +2,40 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from .constants import NUM_MODULES, CEIL_MODE
 
 
 # the NN itself
 class CNN(nn.Module):
-    def __init__(self, number_of_modules, lr, n_actions):
+    def __init__(self, lr, n_actions):
         super(CNN, self).__init__()
-        self.number_of_modules = number_of_modules
+        self.number_of_modules = NUM_MODULES
         self.n_actions = n_actions
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
-        # 1d [32, 12, 3]
-        # 2d [32, 12, 3, 3]
-        # 3d [32, 12, 3, 3, 3]
         # useful? https://gist.github.com/spro/c87cc706625b8a54e604fb1024106556
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=number_of_modules, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
-
-        # self.conv1 = nn.Conv2d(in_channels=3*(number_of_modules + 1), out_channels=32, kernel_size=(1, 1)).to(self.device)
-        # self.bn1 = nn.BatchNorm1d(32, affine=False).to(self.device)
-
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
         # ceil mode needs to be true or else a 0 column is added to both sides
-        self.p1 = nn.AvgPool1d(3, ceil_mode=False)
-        # self.bn1 = nn.BatchNorm1d(32, affine=False).to(self.device)
-        # self.bn1 = nn.BatchNorm1d(4*number_of_modules, affine=False).to(self.device)
+        self.p1 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
 
-        # self.conv2 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=(3,1)).to(self.device)
-        # self.conv2 = nn.Conv1d(in_channels=1, out_channels=number_of_modules+1, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
-        self.conv2 = nn.Conv1d(in_channels=1, out_channels=number_of_modules**2, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
-        self.p2 = nn.AvgPool1d(3, ceil_mode=False)
-        # self.bn2 = nn.BatchNorm1d(64, affine=False).to(self.device)
-        # self.bn2 = nn.BatchNorm1d(4*number_of_modules, affine=False).to(self.device)
+        self.conv2 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules**2, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
+        self.p2 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
 
-        ##### conv3 test
-        self.conv3 = nn.Conv1d(in_channels=1, out_channels=number_of_modules**3, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
-        self.p3 = nn.AvgPool1d(3, ceil_mode=False)
-        # self.bn3 = nn.BatchNorm1d(4*number_of_modules, affine=False).to(self.device)
+        self.conv3 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules**3, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
+        self.p3 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
 
-        # NOTE: maybe two conv layers is enough? they shrink down fairly fast with conv1d.
-        ############################################
-        # self.conv3 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=(3,1)).to(self.device)
-        # self.conv3 = nn.Conv1d(in_channels=1, out_channels=number_of_modules+1, kernel_size=(1, number_of_modules+1)).to(self.device)
-        # self.p3 = nn.AvgPool1d(3)
-        # self.bn3 = nn.BatchNorm1d(128, affine=False).to(self.device)
-        # self.bn3 = nn.BatchNorm1d(4*number_of_modules, affine=False).to(self.device)
-        ############################################
-        # Input for the action input
-        # x = torch.rand((32, 3*(number_of_modules + 1) + (number_of_modules))).to(self.device).view(32, 3*(number_of_modules + 1) + (number_of_modules), 1, 1)
-
-        # x = torch.rand((32, 3*(number_of_modules + 1))).to(self.device).view(32, 3*(number_of_modules + 1), 1, 1)
-        # x = torch.rand(12, 1, 4*number_of_modules).to(self.device)
-        # shape [12, 1, 3]
         # with kernel (1, 3) we should be combining one vector at a time, in bits of 3
         x = torch.tensor([[0., 0., 1., 1., 0., 0., 1., 0., 0.],  # all states
                           [0., 0., 1., 1., 0., 0., 1., 0., 0.],  # all actions
                           [0., 0., 1., 1., 0., 0., 1., 0., 0.],  # all mean action
                           [0., 0., 1.25, 0., 0., 1.25, 0., 0., 1.25]  # reward
-                          # ], dtype=torch.float32).to(self.device).view(12, 1, 1, 3)
                           ], dtype=torch.float32).to(self.device).view(4, 1, 1, 9)
         # print(f"x >>> {x} (shape) {x.shape}")
         self._to_linear = None
         self.convs(x)
 
-        # self.fc1 = nn.Linear(self._to_linear, 515).to(self.device)
-        self.fc1 = nn.Linear(number_of_modules**2, number_of_modules**2).to(self.device)
-        # self.fc2 = nn.Linear(515, 3).to(self.device)
-        self.fc2 = nn.Linear(number_of_modules**2, 3).to(self.device)
+        self.fc1 = nn.Linear(self.number_of_modules**2, self.number_of_modules**2).to(self.device)
+        self.fc2 = nn.Linear(self.number_of_modules**2, 3).to(self.device)
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.loss = nn.MSELoss()

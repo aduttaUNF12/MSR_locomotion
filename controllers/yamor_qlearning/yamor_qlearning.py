@@ -18,8 +18,8 @@ if __name__ == '__main__':
         target_net = FCNN(NUM_MODULES, 0.001, 3)
         policy_net = FCNN(NUM_MODULES, 0.001, 3)
     elif NN_TYPE == "CNN":
-        target_net = CNN(NUM_MODULES, 0.001, 3)
-        policy_net = CNN(NUM_MODULES, 0.001, 3)
+        target_net = CNN(0.001, 3)
+        policy_net = CNN(0.001, 3)
     else:
         print("Enter the type of network to be used!!", file=sys.stderr)
         exit(1)
