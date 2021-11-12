@@ -114,7 +114,7 @@ class Module(Supervisor):
         # BUFFERS
         self.REPLAY_MEMORY_EPISODE = 1
         self.ReplayMemory_EpisodeBuffer = {}
-
+        self.batches = 0
         self.episode_reward_temp = []
         self.episode_actions_temp = []
         self.episode_mean_actions_temp = []
@@ -464,8 +464,9 @@ class Module(Supervisor):
                     # logger
                     if self.bot_id == LEADER_ID:
                         # logger
+                        ep = EPSILON-(EPSILON_DECAY*self.batches) if EPSILON-(EPSILON_DECAY*self.batches) >= MIN_EPSILON else MIN_EPSILON
                         writer(self.bot_id, NUM_MODULES, self.total_time_elapsed,
-                               self.episode_reward, self.loss, self.episode, NN_TYPE)
+                               self.episode_reward, self.loss, self.episode, NN_TYPE, ep)
 
                     self.episode_reward = 0
                     self.episode_mean_action.clear()
@@ -478,6 +479,7 @@ class Module(Supervisor):
 
                 # batch is at least at the minimal working size
                 if self.batch_ticks >= BATCH_SIZE:
+                    self.batches += 1
                     # run the NN and collect loss
                     # TODO: do all payload creation here and pass the final to optimizer
 

@@ -7,7 +7,8 @@ NN_TYPE = "CNN"
 EPSILON = 0.9
 GAMMA = 0.1
 MIN_EPSILON = 0.05
-EPSILON_DECAY = 7000
+# EPSILON_DECAY = 7000
+EPSILON_DECAY = 0.00226   # this would lead to 12000 episodes being exploration and 8000 being exploitation
 T = 0.1
 COMMUNICATION = True
 # AvgPool1d ceil_mode
@@ -22,7 +23,7 @@ UPDATE_PERIOD = 10
 
 # Batch params
 REGULAR_BUFFER = False
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 # BATCH_SIZE = 5
 # BATCH_SIZE = 10
 BATCH_PERCENT = 0.1

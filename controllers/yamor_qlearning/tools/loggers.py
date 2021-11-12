@@ -29,13 +29,13 @@ def path_maker():
 
 
 # logs the information throughout the trial run, collects time_step, reward, loss, and Episode number
-def writer(name, num_of_bots, time_step, reward, loss, episode, nn_type):
+def writer(name, num_of_bots, time_step, reward, loss, episode, nn_type, epsilon):
     current_run = path_maker()
 
     file_name = "{}_{}_MODULES_{}.txt".format(nn_type, num_of_bots, name)
     file_path = os.path.join(current_run, file_name)
     with open(file_path, "a") as fin:
-        fin.write('{},{},{},{}\n'.format(time_step, reward, loss, episode))
+        fin.write('{},{},{},{},{}\n'.format(time_step, reward, loss, episode, epsilon))
 
 
 def logger(**kwargs):

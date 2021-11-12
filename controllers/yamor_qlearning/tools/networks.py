@@ -15,27 +15,44 @@ class CNN(nn.Module):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)  # send network to device
         # useful? https://gist.github.com/spro/c87cc706625b8a54e604fb1024106556
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
+        # kernal is [0, 0, 0] moving across channels, with stride of 1 and padding of 1 (of zeros)
+        # Should input be a single group? or 4 groups?
+        # self.conv1 = nn.Conv1d(in_channels=4, out_channels=self.number_of_modules,
+        self.conv1 = nn.Conv1d(in_channels=4, out_channels=4,
+                               kernel_size=3, padding=1, padding_mode="circular",
+                               stride=1, groups=1).to(self.device)
         # ceil mode needs to be true or else a 0 column is added to both sides
-        self.p1 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
+        # self.p1 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
+        self.bn1 = nn.BatchNorm1d(9, affine=CEIL_MODE).to(self.device)
 
-        self.conv2 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules**2, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
-        self.p2 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
+        # self.conv2 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules**2, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
+        self.conv2 = nn.Conv1d(in_channels=4, out_channels=self.number_of_modules**2,
+                               kernel_size=3, padding=1, padding_mode="circular",
+                               stride=1, groups=1).to(self.device)
+        # self.p2 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
+        self.bn2 = nn.BatchNorm1d(9, affine=CEIL_MODE).to(self.device)
 
-        self.conv3 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules**3, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
-        self.p3 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
+        # self.conv3 = nn.Conv1d(in_channels=1, out_channels=self.number_of_modules**3, kernel_size=(1, 3), stride=(1, 3)).to(self.device)
+        self.conv3 = nn.Conv1d(in_channels=9, out_channels=self.number_of_modules**3,
+                               kernel_size=3, padding=1, padding_mode="circular",
+                               stride=1, groups=1).to(self.device)
+        # self.p3 = nn.AvgPool1d(3, ceil_mode=CEIL_MODE)
+        # self.bn3 = nn.BatchNorm1d(3, affine=CEIL_MODE).to(self.device)
+        self.bn3 = nn.BatchNorm1d(27, affine=CEIL_MODE).to(self.device)
 
         # with kernel (1, 3) we should be combining one vector at a time, in bits of 3
         x = torch.tensor([[0., 0., 1., 1., 0., 0., 1., 0., 0.],  # all states
                           [0., 0., 1., 1., 0., 0., 1., 0., 0.],  # all actions
                           [0., 0., 1., 1., 0., 0., 1., 0., 0.],  # all mean action
                           [0., 0., 1.25, 0., 0., 1.25, 0., 0., 1.25]  # reward
-                          ], dtype=torch.float32).to(self.device).view(4, 1, 1, 9)
+                          ], dtype=torch.float32).to(self.device).view(1, 4, 9)
+                          # ], dtype=torch.float32).to(self.device).view(4, 1, 1, 9)
+                          # ], dtype=torch.float32).to(self.device).view(4, 9)
         # print(f"x >>> {x} (shape) {x.shape}")
         self._to_linear = None
         self.convs(x)
 
-        self.fc1 = nn.Linear(self.number_of_modules**2, self.number_of_modules**2).to(self.device)
+        self.fc1 = nn.Linear((self.number_of_modules**3)*9, self.number_of_modules**2).to(self.device)
         self.fc2 = nn.Linear(self.number_of_modules**2, 3).to(self.device)
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
@@ -45,51 +62,67 @@ class CNN(nn.Module):
         x = self.conv1(x)
         if dbg:
             print(f"conv1 >>> {x} (shape) {x.shape}")
-            print(f"conv1 reshape >>> {x.view(12, 1, 3)} (shape) {x.view(12, 1, 3).shape}")
-        x = x.view(12, 1, 3)
-        # x = self.bn1(x)
-        x = self.p1(x)
+            # print(f"conv1 reshape >>> {x.view(12, 1, 3)} (shape) {x.view(12, 1, 3).shape}")
+            print(f"conv1 reshape >>> {x.view(4, 9)} (shape) {x.view(4, 9).shape}")
+        # x = x.view(12, 1, 3)
+        x = x.view(4, 9)
+        x = self.bn1(x)
+        # x = self.p1(x)
         if dbg:
             print(f"bn1 >>> {x} (shape) {x.shape}")
         x = F.relu(x)
         if dbg:
             print(f"relu >>> {x} (shape) {x.shape}")
-            print(f"relu reshape >>> {x.view(4, 1, 1, 3)} (shape) {x.view(4, 1, 1, 3).shape}")
-        x = x.view(4, 1, 1, 3)
+            # print(f"relu reshape >>> {x.view(4, 1, 1, 9)} (shape) {x.view(4, 1, 1, 9).shape}")
+            print(f"relu reshape >>> {x.view(1, 4, 9)} (shape) {x.view(1, 4, 9).shape}")
+        # x = x.view(4, 1, 1, 3)
+        x = x.view(1, 4, 9)
 
         x = self.conv2(x)
         if dbg:
             print(f"conv2 >>> {x} (shape) {x.shape}")
-            print(f"conv2 reshape >>> {x.view(4, 1, self.number_of_modules**2)}"
-                  f" (shape) {x.view(4, 1, self.number_of_modules**2).shape}")
-        x = x.view(4, 1, 9)
-        # x = self.bn2(x)
-        x = self.p2(x)
+            # print(f"conv2 reshape >>> {x.view(4, 1, self.number_of_modules**2)}"
+            print(f"conv2 reshape >>> {x.view(1, 9, self.number_of_modules**2)}"
+                  # f" (shape) {x.view(4, 1, self.number_of_modules**2).shape}")
+                  f" (shape) {x.view(1, 9, self.number_of_modules**2).shape}")
+        # x = x.view(4, 1, 9)
+        x = x.view(1, 9, 9)
+        x = self.bn2(x)
+        # x = self.p2(x)
         if dbg:
             print(f"bn2 >>> {x} (shape) {x.shape}")
         x = F.relu(x)
 
         if dbg:
             print(f"relu >>> {x} (shape) {x.shape}")
-            print(f"relu reshape >>> {x.view(4, 1, 1, 3)} (shape) {x.view(4, 1, 1, 3).shape}")
-        x = x.view(4, 1, 1, 3)
+            # print(f"relu reshape >>> {x.view(4, 1, 1, 3)} (shape) {x.view(4, 1, 1, 3).shape}")
+            print(f"relu reshape >>> {x.view(1, 9, 9)} (shape) {x.view(1, 9, 9).shape}")
+        # x = x.view(4, 1, 1, 3)
+        x = x.view(1, 9, 9)
         x = self.conv3(x)
         if dbg:
             print(f"conv3 >>> {x} (shape) {x.shape}")
-            print(f"conv3 reshape >>> {x.view(4, 1, self.number_of_modules**3)}"
-                  f" (shape) {x.view(4, 1, self.number_of_modules**3).shape}")
-        x = x.view(4, 1, self.number_of_modules**3)
-        # x = self.bn3(x)
-        x = self.p3(x)
+            # print(f"conv3 reshape >>> {x.view(4, 1, self.number_of_modules**3)}"
+            print(f"conv3 reshape >>> {x.view(1, self.number_of_modules**3, 9)}"
+                  # f" (shape) {x.view(4, 1, self.number_of_modules**3).shape}")
+                  f" (shape) {x.view(1, self.number_of_modules**3, 9).shape}")
+        # x = x.view(4, 1, self.number_of_modules**3)
+        x = x.view(1, self.number_of_modules**3, 9)
+        x = self.bn3(x)
+        # x = self.p3(x)
         if dbg:
             print(f"bn3 >>> {x}(shape) {x.shape}")
         x = F.relu(x)
         if dbg:
             print(f"relu >>> {x} (shape) {x.shape}")
-            print(f"relu reshape >>> {x.view(4, 1, 1, self.number_of_modules**2)}"
-                  f" (shape) {x.view(4, 1, 1, self.number_of_modules**2).shape}")
-        x = x.view(4, 1, 1, self.number_of_modules**2)
-
+            # print(f"relu reshape >>> {x.view(4, 1, 1, self.number_of_modules**2)}"
+            print(f"relu reshape >>> {x.view(1, self.number_of_modules**3, 9)}"
+                  # f" (shape) {x.view(4, 1, 1, self.number_of_modules**2).shape}")
+                  f" (shape) {x.view(1, self.number_of_modules**3, 9).shape}")
+        # x = x.view(1, self.number_of_modules**2)
+        x = x.view(1, (self.number_of_modules**3)*9)
+        if dbg:
+            print(f"_to_linear >>> {x} (shape) {x.shape}")
         if self._to_linear is None:
             # self._to_linear = x[0].shape[0]*x[0].shape[1]*x[0].shape[2]
             self._to_linear = x
@@ -103,7 +136,7 @@ class CNN(nn.Module):
         x = self.convs(actions, dbg=dbg)
         if dbg:
             print(f"convs >>> {x} (shape) {x.shape}")
-        x = x.view(4, self.number_of_modules**2)
+        # x = x.view(4, self.number_of_modules**2)
         # x = x.view(6, 6)
         if dbg:
             print(f"view >>> {x} (shape) {x.shape}")

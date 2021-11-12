@@ -46,7 +46,8 @@ class Agent:
                     #     print(f"temp_ >>> {torch.tensor(temp_, dtype=torch.float)} (shape) ({torch.tensor(temp_, dtype=torch.float).shape})")
                     #     print(f"temp_ >>> {torch.tensor(temp_, dtype=torch.float).view(12, 1, 1, 3)} (shape) ({torch.tensor(temp_, dtype=torch.float).view(12, 1, 1, 3).shape})")
                     # exit(11)
-                    payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device).view(4, 1, 1, 9)
+                    # payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device).view(4, 1, 1, 9)
+                    payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device).view(1, 4, 9)
                 except RuntimeError:
                     # if self.module_number == 1:
                     print(f"temp_ >>> ({temp_}_ ({len(temp_)})")
