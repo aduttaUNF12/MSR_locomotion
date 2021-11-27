@@ -68,20 +68,26 @@ class Module(Supervisor):
         self.t = 0
         self.batch_ticks = 1
         self.reward = 0
+        self.reward_ = 0
         self.loss = None
         self.calc_reward()
 
         self.global_actions = [1]*NUM_MODULES
         self.global_states = [1]*NUM_MODULES
-        self.global_mean_action_vectors = [1]*NUM_MODULES
+
+        self.global_mean_action_vectors = [[0, 0, 0]]*NUM_MODULES
+        self.global_mean_action_vectors_ = [[0, 0, 0]]*NUM_MODULES
+
         self.global_states_vectors = [[0, 0, 0]]*NUM_MODULES
         self.global_states__vectors = [[0, 0, 0]]*NUM_MODULES
+
         self.global_actions_vectors = [[0, 0, 0]]*NUM_MODULES
         self.global_prev_actions_vectors = [[0, 0, 0]]*NUM_MODULES
+
         self.mean_action_vector = [0]*3
         self.mean_action = 0
         self.prev_states_vector = [0]*3
-        self.prev_mean_action_vector = [0]*3
+        self.prev_mean_action_vector = [1]*3
         self.prev_mean_action = 0
         """
         states:  0 - min
@@ -114,20 +120,28 @@ class Module(Supervisor):
         # BUFFERS
         self.REPLAY_MEMORY_EPISODE = 1
         self.ReplayMemory_EpisodeBuffer = {}
-
+        self.batches = 0
         self.episode_reward_temp = []
+        self.episode_reward__temp = []
         self.episode_actions_temp = []
+        self.episode_actions__temp = []
         self.episode_mean_actions_temp = []
+        self.episode_mean_actions__temp = []
         self.episode_states_temp = []
         self.episode_prev_states_temp = []
         self.episode_single_action_temp = []
+        self.episode_single_action__temp = []
 
         self.replay_buf_reward = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_reward_ = deque(maxlen=BUFFER_LIMIT)
         self.replay_buf_action = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_action_ = deque(maxlen=BUFFER_LIMIT)
         self.replay_buf_single_action = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_single_action_ = deque(maxlen=BUFFER_LIMIT)
         self.replay_buf_state = deque(maxlen=BUFFER_LIMIT)
         self.replay_buf_state_ = deque(maxlen=BUFFER_LIMIT)
         self.replay_buf_mean_action = deque(maxlen=BUFFER_LIMIT)
+        self.replay_buf_mean_action_ = deque(maxlen=BUFFER_LIMIT)
 
         # making all modules have NN
         self.agent = Agent(self.bot_id, NUM_MODULES, n_actions=3, gamma=GAMMA,
@@ -202,6 +216,7 @@ class Module(Supervisor):
 
     # calculates reward based on the travel distance from old position to the new, calculates hypotenuse of two points
     def calc_reward(self):
+        self.reward_ = self.reward
         self.reward = math.hypot(self.old_pos[0]-self.new_pos[0], self.old_pos[2]-self.new_pos[2])
         # logger(bot_id=self.bot_id, reward=self.reward)
 
@@ -229,6 +244,7 @@ class Module(Supervisor):
 
     # Converts global_actions (actions of all of the modules in the chain) into a vector representation
     def actions_to_vectors(self):
+        self.global_prev_actions_vectors = self.global_actions_vectors
         self.global_actions_vectors = []
         # adds vector representation of the state to an array, [x, y, z]
         for action in self.global_actions:
@@ -313,6 +329,8 @@ class Module(Supervisor):
         self.mean_action_vector = np.true_divide(a, (NUM_MODULES - 1))
         self.mean_action_vector = self.mean_action_vector[0:NUM_MODULES]
 
+
+        self.global_mean_action_vectors_ = self.global_mean_action_vectors
         all_vectors = []
         # mean action for all modules
         # m represents current module number
@@ -395,14 +413,19 @@ class Module(Supervisor):
             else:
                 # episode reward for the robot
                 self.episode_reward_temp.extend([self.reward])
+                self.episode_reward__temp.extend([self.reward_])
                 # episode action for the robot
                 self.episode_single_action_temp.extend([self.current_action])
+                self.episode_single_action__temp.extend([self.prev_actions])
                 # episode action vectors for all robots
                 self.episode_actions_temp.extend([self.global_actions_vectors])
+                self.episode_actions__temp.extend([self.global_prev_actions_vectors])
                 # episode mean action vectors for all robots
                 self.episode_mean_actions_temp.extend([self.global_mean_action_vectors])
+                self.episode_mean_actions__temp.extend([self.global_mean_action_vectors_])
                 # episode state vectors for all robots
                 self.episode_states_temp.extend([self.global_states_vectors])
+                self.episode_prev_states_temp.extend([self.global_states__vectors])
 
 
                 # if self.episode == 3:
@@ -448,24 +471,42 @@ class Module(Supervisor):
                             fin.write("\n")
 
                     self.replay_buf_reward.extend([self.episode_reward_temp])
+                    self.replay_buf_reward_.extend([self.episode_reward__temp])
+
                     self.replay_buf_state.extend([self.episode_states_temp])
                     self.replay_buf_mean_action.extend([self.episode_mean_actions_temp])
                     self.replay_buf_state_.extend([self.episode_prev_states_temp])
+
+                    self.replay_buf_mean_action.extend([self.episode_mean_actions_temp])
+                    self.replay_buf_mean_action_.extend([self.episode_mean_actions__temp])
+
                     self.replay_buf_action.extend([self.episode_actions_temp])
+                    self.replay_buf_action_.extend([self.episode_actions__temp])
+
                     self.replay_buf_single_action.extend([self.episode_single_action_temp])
+                    self.replay_buf_single_action_.extend([self.episode_single_action__temp])
 
                     self.episode_reward_temp = []
+                    self.episode_reward__temp = []
+
                     self.episode_states_temp = []
-                    self.episode_mean_actions_temp = []
                     self.episode_prev_states_temp = []
+
+                    self.episode_mean_actions_temp = []
+                    self.episode_mean_actions__temp = []
+
                     self.episode_actions_temp = []
+                    self.episode_actions__temp = []
+
                     self.episode_single_action_temp = []
+                    self.episode_single_action__temp = []
 
                     # logger
                     if self.bot_id == LEADER_ID:
                         # logger
+                        ep = EPSILON-(EPSILON_DECAY*self.batches) if EPSILON-(EPSILON_DECAY*self.batches) >= MIN_EPSILON else MIN_EPSILON
                         writer(self.bot_id, NUM_MODULES, self.total_time_elapsed,
-                               self.episode_reward, self.loss, self.episode, NN_TYPE)
+                               self.episode_reward, self.loss, self.episode, NN_TYPE, ep)
 
                     self.episode_reward = 0
                     self.episode_mean_action.clear()
@@ -478,6 +519,7 @@ class Module(Supervisor):
 
                 # batch is at least at the minimal working size
                 if self.batch_ticks >= BATCH_SIZE:
+                    self.batches += 1
                     # run the NN and collect loss
                     # TODO: do all payload creation here and pass the final to optimizer
 
@@ -506,13 +548,13 @@ class Module(Supervisor):
                                 robot_state__vectors = list(itertools.chain(*self.replay_buf_state_[part][step]))
                                 # adding actions
                                 robot_state_vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
-                                robot_state__vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
+                                robot_state__vectors += list(itertools.chain(*self.replay_buf_action_[part][step]))
                                 # adding mean actions
                                 robot_state_vectors += list(itertools.chain(*self.replay_buf_mean_action[part][step]))
-                                robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action[part][step]))
+                                robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action_[part][step]))
                                 # adding reward
                                 robot_state_vectors.append(self.replay_buf_reward[part][step])
-                                robot_state__vectors.append(self.replay_buf_reward[part][step])
+                                robot_state__vectors.append(self.replay_buf_reward_[part][step])
                             else:
                                 # adding states
                                 robot_state_vectors = list(itertools.chain(*self.replay_buf_state[part][step][self.bot_id-1]))
@@ -526,7 +568,7 @@ class Module(Supervisor):
                                 robot_state__vectors.append(self.replay_buf_reward[part][step])
 
                             state_action_payloads.append([robot_state_vectors, self.replay_buf_single_action[part][step]])
-                            expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward[part][step]])
+                            expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward_[part][step]])
 
                     self.loss = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
                                                     esap=expected_state_action_payloads)
@@ -552,7 +594,7 @@ class Module(Supervisor):
             try:
                 self.current_action = self.agent.choose_action(robot_state_vectors, self.episode)[0]
             except TypeError:
-                print(f"Error with input: {robot_state_vectors} line 580")
+                print(f"Error with input: {robot_state_vectors} line 547")
                 exit(222)
 
             # if self.bot_id == 1:
