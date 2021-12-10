@@ -21,6 +21,18 @@ filename = strcat('avg_rwd.png');
 %saveas(gcf,filename);
 % 
 
+%% reward plot (moving mean)
+[rwd, loss] = dataImport_iliya(FILENAME);
+M = movmean(rwd,[100 0]);%moving mean of last 100 epiosdes
+plot(M)
+xlabel('Episodes','FontSize',14);
+ylabel('Reward','FontSize',14);
+legend('Moving Average (100 episodes)','FontSize',12, 'Location','best')
+xlim([-100 5100])
+filename = strcat('movmean_rwd.png');
+saveas(gcf,filename);
+
+
 %% exploration vs. exploitation
 eps = run1.eps * 100;
 exp = 100 - eps;
