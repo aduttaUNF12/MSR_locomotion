@@ -36,15 +36,13 @@ class Agent:
 
     def payload_maker(self, temp_):
         if self.NN_TYPE == "FCNN":
-            payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device)
+            payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device)
         else:
             if COMMUNICATION:
                 try:
                     if FIX:
                         # fix
-                        # payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device).view(1, 1, (9*NUM_MODULES)+1, 1)
-                        payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device).view(1, (self.number_of_modules*9)+1, 1, 1)
-                        # payload = torch.tensor([temp_], dtype=torch.float).to(self.policy_net.device).view(1, (self.number_of_modules*9), 1, 1)
+                        payload = torch.tensor(temp_, dtype=torch.float).to(self.policy_net.device)
                     else:
                         # original
                         payload = torch.tensor([temp_]*32, dtype=torch.float).to(self.policy_net.device).view(32, (9*NUM_MODULES)+1, 1, 1)
@@ -61,22 +59,53 @@ class Agent:
         sample = random.random()
         # FOR DECAY AT EACH ACTION
         # self.decrement_epsilon()
-        if EPS_EXP:
-            eps_threshold = self.eps_min + (self.epsilon - self.eps_min) * math.exp(-1 * episode / self.eps_dec)
-            res = sample > eps_threshold
-        else:
-            eps_threshold = (1 - self.epsilon)
-            res = sample < eps_threshold
-        if res:
-            # #TODO: TEMP
-            # action = np.random.choice(self.action_space, 1)
-            # return action
-            payload = self.payload_maker(module_actions)
-            action = self.policy_net.forward(payload)
-            return [np.argmax(action.to('cpu').detach().numpy())]
+        if episode > DECAY_PAUSE_EPISODE:
+            if EPS_EXP:
+                eps_threshold = self.eps_min + (self.epsilon - self.eps_min) * math.exp(-1 * (episode - DECAY_PAUSE_EPISODE)/ self.eps_dec)
+                res = sample > eps_threshold
+
+                if self.module_number == LEADER_ID:
+                    with open("log.txt", "a") as fout:
+                        fout.write(f"################### In Choose Action (EXP) ###################\n")
+                        fout.write(f"EPS threshold {eps_threshold}\n")
+
+            else:
+                eps_threshold = (1 - self.epsilon)
+                res = sample < eps_threshold
+            if res:
+                # #TODO: TEMP
+                # action = np.random.choice(self.action_space, 1)
+                # return action
+                payload = self.payload_maker(module_actions)
+                action = self.policy_net.forward(payload)
+
+                if self.module_number == LEADER_ID:
+                    with open("log.txt", "a") as fout:
+                        fout.write(f"################### Action From NN ###################\n")
+                        fout.write(f"Module Actions {module_actions}\n")
+                        fout.write(f"Payload {payload}\n")
+                        fout.write(f"Actions {action}\n")
+                        fout.write(f"Argmax Actions {[np.argmax(action.to('cpu').detach().numpy())]}\n")
+
+                return [np.argmax(action.to('cpu').detach().numpy())]
+            else:
+                action = np.random.choice(self.action_space, 1)
+
+                # if self.module_number == LEADER_ID:
+                #     with open("log.txt", "a") as fout:
+                #         fout.write(f"################### Action Random ###################\n")
+                #         fout.write(f"Actions {action}\n")
+
+            return action
         else:
             action = np.random.choice(self.action_space, 1)
-        return action
+
+            # if self.module_number == LEADER_ID:
+            #     with open("log.txt", "a") as fout:
+            #         fout.write(f"################### Action 300 Init Eps ###################\n")
+            #         fout.write(f"Actions {action}\n")
+
+            return action
 
     def decrement_epsilon(self):
         # decrease epsilon by set value if epsilon != min epsilon
@@ -107,12 +136,36 @@ class Agent:
         #     del res
 
         # print(f"sap >>>> {sap}")
+        if self.module_number == LEADER_ID:
+            with open("log.txt", "a") as fout:
+                fout.write(f"################### Optimizer ###################\n")
+                fout.write(f"################### SAP ###################\n")
+                # fout.write(f"{sap[0:32]}\n")
+                for thing in sap[0:32]:
+                    fout.write(f"{thing}\n")
+                fout.write(f"################### ESAP ###################\n")
+                # fout.write(f"{esap[0:32]}\n")
+                for thing in esap[0:32]:
+                    fout.write(f"{thing}\n")
         for i, s in enumerate(sap):
+            # exit(111)
             payload = self.payload_maker(s[0])
             # sending payload to the NN
             res = self.policy_net(payload)
-            del payload  # garbage collection
             res = res.to('cpu')   # sending res to cpu to clear some VRAM
+
+            if self.module_number == LEADER_ID:
+                if i < 32:
+                    with open("log.txt", "a") as fout:
+                        fout.write(f"################### SAP ({i}) ###################\n")
+                        fout.write(f"################### Payload ###################\n")
+                        fout.write(f"{payload}\n")
+                        fout.write(f"################### Res ###################\n")
+                        fout.write(f"{res}\n")
+                        fout.write(f"################### State Action Value ###################\n")
+                        fout.write(f"{res[s[1]]}\n")
+
+            del payload  # garbage collection
             state_action_values.append(torch.tensor(res[s[1]],  # getting Q-Value
                                                     dtype=torch.float, requires_grad=True).to('cpu'))
             del res
@@ -121,23 +174,22 @@ class Agent:
             payload = self.payload_maker(s[0])
             # sending payload to the NN
             res = self.target_net(payload).to('cpu').detach()
-            del payload  # garbage collection
             max_index = np.argmax(res)
+            if self.module_number == LEADER_ID:
+                if i < 32:
+                    with open("log.txt", "a") as fout:
+                        fout.write(f"################### ESAP ({i}) ###################\n")
+                        fout.write(f"################### Payload ###################\n")
+                        fout.write(f"{payload}\n")
+                        fout.write(f"{res}\n")
+                        fout.write(f"################### Max Index ###################\n")
+                        fout.write(f"{max_index}\n")
+                        fout.write(f"################### Expected State Action Value ###################\n")
+                        fout.write(f"{(res[max_index].to('cpu').detach() * self.gamma) + s[1]}\n")
+
+            del payload  # garbage collection
             expected_state_action_values.append((res[max_index].to('cpu').detach() * self.gamma) + s[1])
             del res
-
-        # for s in esap:
-        #     # s = [[payload], reward]:
-        #     for i, esa in enumerate(s[0]):
-        #         # making a payload to send to the NN
-        #         payload = self.payload_maker(esa)
-        #         # sending payload to the NN
-        #         res = self.target_net(payload).to('cpu').detach()
-        #         del payload  # garbage collection
-        #         # getting index of the largest value in res
-        #         max_index = np.argmax(res)
-        #         expected_state_action_values.append((res[max_index].to('cpu').detach() * self.gamma) + s[1][i])
-        #         del res
 
         state_action_values = torch.stack(state_action_values)
         state_action_values = state_action_values.double().float()
@@ -147,8 +199,24 @@ class Agent:
         # state_action_values = torch.tensor(state_action_values).to(self.target_net.device)
         expected_state_action_values = torch.tensor(expected_state_action_values).to(self.target_net.device)
 
+        if self.module_number == LEADER_ID:
+            with open("log.txt", "a") as fout:
+                fout.write(f"################### State Action Values ###################\n")
+                # fout.write(f"{state_action_values[0:32]}\n")
+                for thing in state_action_values[0:32]:
+                    fout.write(f"{thing}\n")
+                fout.write(f"################### Expected State Action Values ###################\n")
+                # fout.write(f"{expected_state_action_values[0:32]}\n")
+                for thing in expected_state_action_values[0:32]:
+                    fout.write(f"{thing}\n")
+
         # loss = self.policy_net.loss(state_action_values, expected_state_action_values)
         loss = self.policy_net.loss(state_action_values.to(self.target_net.device), expected_state_action_values.double().float())
+
+        if self.module_number == LEADER_ID:
+            with open("log.txt", "a") as fout:
+                fout.write(f"################### LOSS ###################\n")
+                fout.write(f"{loss}\n")
 
         del expected_state_action_values, state_action_values
         # TODO figure out why loss is astronomical
