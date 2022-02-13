@@ -40,6 +40,7 @@ class Module(Supervisor):
         self.episode_current_action = []
         # self.module = module
         self.episode = 1
+        self.step_count = 1
         self.total_time_elapsed = 0
         self.self_message = bytes
 
@@ -474,7 +475,7 @@ class Module(Supervisor):
                         temp_esap.append([robot_state__vectors, self.replay_buf_reward_[episode][s]])
 
             self.loss = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
-                                            esap=expected_state_action_payloads)
+                                            esap=expected_state_action_payloads, step=self.step_count)
             self.episode_loss += float(self.loss)
             state_action_payloads.clear()
             expected_state_action_payloads.clear()
@@ -658,6 +659,7 @@ class Module(Supervisor):
                 self.batch_updated = False
 
             # set previous action option to the new one
+            self.step_count += 1
             self.prev_actions = self.current_action
             robot_state_vectors = []
             if COMMUNICATION:
