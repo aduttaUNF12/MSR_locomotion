@@ -33,6 +33,7 @@ class Module(Supervisor):
         self.timeStep = int(self.getBasicTimeStep())
         self.prev_episode = 1
         self.episode_reward = 0
+        self.episode_loss = 0.0
         self.episode_rewards = []
         self.episode_mean_action = []
         self.prev_episode_mean_action = []
@@ -71,6 +72,7 @@ class Module(Supervisor):
         self.reward_ = 0
         self.loss = None
         self.calc_reward()
+
 
         self.global_actions = [1]*NUM_MODULES
         self.global_states = [1]*NUM_MODULES
@@ -359,6 +361,125 @@ class Module(Supervisor):
             n = n + 1
         self.mean_action = n
 
+    def batch_learn(self):
+        # batch is at least at the minimal working size
+        if self.batch_ticks >= BATCH_SIZE and self.batch_updated:
+            # run the NN and collect loss
+            # TODO: do all payload creation here and pass the final to optimizer
+
+            # random episode sample
+            if self.episode - 1 == 0:
+                episode = 0
+            else:
+                if self.episode > BUFFER_LIMIT:
+                    episodes = range(self.episode-(BUFFER_LIMIT+1))
+                else:
+                    episodes = range(self.episode-1)
+
+                episode = np.random.choice(episodes, 1)[0]
+
+            try:
+                # if we chose current episode as a sample episode,
+                if self.episode - 1 == episode or self.episode == episode:
+                    steps = range(len(self.episode_states_temp))
+                    # if self.bot_id == LEADER_ID:
+                    #     print(f"in self batch")
+                else:
+                    steps = range(len(self.replay_buf_state[episode]))
+                    # if self.bot_id == LEADER_ID:
+                    #     print(f"in global batch")
+
+                sample = np.random.choice(steps, BATCH_SIZE-1, replace=False)
+
+            except TypeError:
+                if self.bot_id == LEADER_ID:
+                    print(f"self.episode >>> {self.episode}")
+                    print(f"episode >>> {episode}")
+                    print(f"episode_states_temp >>> {self.episode_states_temp} ({len(self.episode_states_temp)})")
+                    print(f"replay_buf_state >>> {self.replay_buf_state} ({len(self.replay_buf_state)})")
+                exit(11)
+
+            state_action_payloads = []
+            expected_state_action_payloads = []
+            for s in sample:
+                temp_sap = []
+                temp_esap = []
+                if self.episode - 1 == episode:
+                    # adding states
+                    robot_state_vectors = list(itertools.chain(*self.episode_states_temp[s]))
+                    # adding previous state
+                    robot_state__vectors = list(itertools.chain(*self.episode_states_temp[s]))
+                    # adding actions
+                    robot_state_vectors += list(itertools.chain(*self.episode_actions_temp[s]))
+                    # original
+                    if not FIX:
+                        robot_state__vectors += list(itertools.chain(*self.episode_actions_temp[s]))
+                    else:
+                        # fix
+                        robot_state__vectors += list(itertools.chain(*self.episode_actions__temp[s]))
+
+                    # adding mean actions
+                    robot_state_vectors += list(itertools.chain(*self.episode_mean_actions_temp[s]))
+                    # original
+                    if not FIX:
+                        robot_state__vectors += list(itertools.chain(*self.episode_mean_actions_temp[s]))
+                    else:
+                        # fix
+                        robot_state__vectors += list(itertools.chain(*self.episode_mean_actions__temp[s]))
+
+                    state_action_payloads.append([robot_state_vectors, self.episode_single_action_temp[s]])
+                    # original
+                    if not FIX:
+                        expected_state_action_payloads.append([robot_state__vectors, self.episode_reward_temp[s]])
+                    else:
+                        # fix
+                        expected_state_action_payloads.append([robot_state__vectors, self.episode_reward__temp[s]])
+
+                    if s < 32:
+                        temp_sap.append([robot_state_vectors, self.episode_single_action_temp[s]])
+                        temp_esap.append([robot_state__vectors, self.episode_reward__temp[s]])
+                else:
+                    # adding states
+                    robot_state_vectors = list(itertools.chain(*self.replay_buf_state[episode][s]))
+                    # adding previous state
+                    robot_state__vectors = list(itertools.chain(*self.replay_buf_state_[episode][s]))
+                    # adding actions
+                    robot_state_vectors += list(itertools.chain(*self.replay_buf_action[episode][s]))
+                    # original
+                    if not FIX:
+                        robot_state__vectors += list(itertools.chain(*self.replay_buf_action[episode][s]))
+                    else:
+                        # fix
+                        robot_state__vectors += list(itertools.chain(*self.replay_buf_action_[episode][s]))
+
+                    # adding mean actions
+                    robot_state_vectors += list(itertools.chain(*self.replay_buf_mean_action[episode][s]))
+                    # original
+                    if not FIX:
+                        robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action[episode][s]))
+                    else:
+                        # fix
+                        robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action_[episode][s]))
+
+                    state_action_payloads.append([robot_state_vectors, self.replay_buf_single_action[episode][s]])
+                    # original
+                    if not FIX:
+                        expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward[episode][s]])
+                    else:
+                        # fix
+                        expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward_[episode][s]])
+
+                    if s < 32:
+                        temp_sap.append([robot_state_vectors, self.replay_buf_single_action[episode][s]])
+                        temp_esap.append([robot_state__vectors, self.replay_buf_reward_[episode][s]])
+
+            self.loss = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
+                                            esap=expected_state_action_payloads)
+            self.episode_loss += float(self.loss)
+            state_action_payloads.clear()
+            expected_state_action_payloads.clear()
+            self.batch_updated = False
+
     def learn(self):
         # If current action is None
         if self.act is None:
@@ -517,144 +638,24 @@ class Module(Supervisor):
                             ep = self.agent.epsilon
                             # ep = EPSILON-(EPSILON_DECAY*self.batches) if EPSILON-(EPSILON_DECAY*self.batches) >= MIN_EPSILON else MIN_EPSILON
                         writer(self.bot_id, NUM_MODULES, self.total_time_elapsed,
-                               self.episode_reward, self.loss, self.episode, NN_TYPE, ep)
+                               self.episode_reward, self.episode_loss, self.episode, NN_TYPE, ep)
 
                     self.episode_reward = 0
+                    self.episode_loss = 0
                     self.episode_mean_action.clear()
                     self.prev_episode_mean_action.clear()
                     self.episode_current_action.clear()
                     self.prev_episode = self.episode
-                    self.batch_ticks += 1
-                    if self.batch_ticks >= BATCH_SIZE:
-                        self.batch_updated = True
-                    else:
-                        self.batch_updated = False
                     self.REPLAY_MEMORY_EPISODE += 1
 
-                # batch is at least at the minimal working size
-                if self.batch_ticks >= BATCH_SIZE and self.batch_updated:
-                    # run the NN and collect loss
-                    # TODO: do all payload creation here and pass the final to optimizer
+                self.batch_learn()
 
-                    # if number of passed episodes is less than BUFFER_LIMIT (maximum number of inputs in buffer)
-                    if self.episode < BUFFER_LIMIT:
-                        # just generating a list form 0-episode
-                        episodes = range(self.episode-1)
-                    else:
-                        # just generating a list from 0-BUFFER_LIMIT
-                        episodes = range(BUFFER_LIMIT)
 
-                    # excluding 1 from episodes because the first run has one or more faulty inputs
-                    sample = np.random.choice(episodes, BATCH_SIZE-1, replace=False)
-                    del episodes
-
-                    state_action_payloads = []
-                    expected_state_action_payloads = []
-                    if self.bot_id == LEADER_ID:
-                        with open("log.txt", "a") as fout:
-                            fout.write("\n################### Batch Sample ###################\n\n")
-                            fout.write(f"{sample}\n")
-
-                    for part in sample:
-                        try:
-                            if part < len(self.replay_buf_state):
-                                number_of_steps = range(len(self.replay_buf_state[part]))
-                            else:
-                                continue
-                        except IndexError:
-                            print(f"Index Error: {part} for (len) {len(self.replay_buf_state)}")
-                            exit(1)
-                        temp_sap = []
-                        temp_esap = []
-                        for step in number_of_steps:
-                            if COMMUNICATION:
-                                # if self.bot_id == LEADER_ID:
-                                #     print(f"state vectors >>> {self.replay_buf_state[part][step]}\n"
-                                #           f"prev state vectors >>> {self.replay_buf_state_[part][step]}\n"
-                                #           f"action vectors >>> {self.replay_buf_action[part][step]}\n"
-                                #           f"prev action vectors >>> {self.replay_buf_action_[part][step]}\n"
-                                #           f"mean action vectors >>> {self.replay_buf_mean_action[part][step]}\n"
-                                #           f"prev mean action vectors >>> {self.replay_buf_mean_action[part][step]}\n"
-                                #           f"reward vector >>> {self.replay_buf_reward[part][step]}\n"
-                                #           f"prev reward vecotr >>> {self.replay_buf_reward_[part][step]}")
-                                # exit(111)
-
-                                # adding states
-                                robot_state_vectors = list(itertools.chain(*self.replay_buf_state[part][step]))
-                                # adding previous state
-                                robot_state__vectors = list(itertools.chain(*self.replay_buf_state_[part][step]))
-                                # adding actions
-                                robot_state_vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
-                                # original
-                                if not FIX:
-                                    robot_state__vectors += list(itertools.chain(*self.replay_buf_action[part][step]))
-                                else:
-                                    # fix
-                                    robot_state__vectors += list(itertools.chain(*self.replay_buf_action_[part][step]))
-
-                                # adding mean actions
-                                robot_state_vectors += list(itertools.chain(*self.replay_buf_mean_action[part][step]))
-                                # original
-                                if not FIX:
-                                    robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action[part][step]))
-                                else:
-                                    # fix
-                                    robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action_[part][step]))
-
-                                # adding reward
-                                # robot_state_vectors.append(self.replay_buf_reward[part][step])
-                                # # original
-                                # if not FIX:
-                                #     robot_state__vectors.append(self.replay_buf_reward[part][step])
-                                # else:
-                                #     # fix
-                                #     robot_state__vectors.append(self.replay_buf_reward_[part][step])
-
-                            else:
-                                # adding states
-                                robot_state_vectors = list(itertools.chain(*self.replay_buf_state[part][step][self.bot_id-1]))
-                                # adding previous state
-                                robot_state__vectors = list(itertools.chain(*self.replay_buf_state_[part][step][self.bot_id-1]))
-                                # adding actions
-                                robot_state_vectors += list(itertools.chain(*self.replay_buf_action[part][step][self.bot_id-1]))
-                                robot_state__vectors += list(itertools.chain(*self.replay_buf_action[part][step][self.bot_id-1]))
-                                # adding reward
-                                robot_state_vectors.append(self.replay_buf_reward[part][step])
-                                robot_state__vectors.append(self.replay_buf_reward[part][step])
-
-                            state_action_payloads.append([robot_state_vectors, self.replay_buf_single_action[part][step]])
-                            # original
-                            if not FIX:
-                                expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward[part][step]])
-                            else:
-                                # fix
-                                expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward_[part][step]])
-
-                            if step < 32:
-                                temp_sap.append([robot_state_vectors, self.replay_buf_single_action[part][step]])
-                                temp_esap.append([robot_state__vectors, self.replay_buf_reward_[part][step]])
-
-                        if self.bot_id == LEADER_ID:
-                            with open("log.txt", "a") as fout:
-                                fout.write(f"\n################### SAP Episode {part} ###################\n\n")
-                                fout.write(f"################### SAP [[state, action, mean action], [action taken at this step]]###################\n")
-                                for thing in temp_sap:
-                                    fout.write(f"{thing}\n")
-
-                                fout.write(f"\n################### ESAP Episode {part} ###################\n\n")
-                                fout.write(f"################### ESAP [[state_, action_, mean action_], [reward at before step]] ###################\n")
-                                for thing in temp_esap:
-                                    fout.write(f"{thing}\n")
-
-                    self.loss = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
-                                                    esap=expected_state_action_payloads)
-                    state_action_payloads.clear()
-                    expected_state_action_payloads.clear()
-                    self.batch_updated = False
-                    ########################
-                    # self.batch_ticks = 0
-                # if self.bot_id == LEADER_ID:
-                #     print("Out batch")
+            self.batch_ticks += 1
+            if self.batch_ticks >= BATCH_SIZE:
+                self.batch_updated = True
+            else:
+                self.batch_updated = False
 
             # set previous action option to the new one
             self.prev_actions = self.current_action
