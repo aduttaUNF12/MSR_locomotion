@@ -374,6 +374,8 @@ class Module(Supervisor):
             else:
                 if self.episode > BUFFER_LIMIT:
                     episodes = range(self.episode-(BUFFER_LIMIT+1))
+                    if self.episode - (BUFFER_LIMIT+1) <= 0:
+                        episodes = list(range(1))
                 else:
                     episodes = range(self.episode-1)
 
@@ -386,7 +388,16 @@ class Module(Supervisor):
                     # if self.bot_id == LEADER_ID:
                     #     print(f"in self batch")
                 else:
-                    steps = range(len(self.replay_buf_state[episode]))
+                    try:
+                        steps = range(len(self.replay_buf_state[episode]))
+                    except IndexError:
+                        if episode > self.replay_buf_state.__len__() and episode > 0:
+                            episode -= 1
+                            steps = range(len(self.replay_buf_state[episode]))
+                        else:
+                            print(f"Episode value: {episode}\nDeque len: {self.replay_buf_state.__len__()}\n"
+                                  f"Cannot get a value out of the buffer")
+                            exit(11)
                     # if self.bot_id == LEADER_ID:
                     #     print(f"in global batch")
 
