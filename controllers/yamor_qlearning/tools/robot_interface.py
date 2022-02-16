@@ -10,7 +10,8 @@ import numpy as np
 import torch
 
 from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON,\
-    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION, EPSILON_DECAY, FIX, EPS_EXP, DECAY_PAUSE_EPISODE
+    T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION, EPSILON_DECAY, FIX, EPS_EXP, DECAY_PAUSE_EPISODE,\
+    UPDATE_PERIOD
 from .agent import Agent
 from .buffers import ReplayBuffer
 from .loggers import writer, path_maker
@@ -31,6 +32,7 @@ class Module(Supervisor):
         #  webots section
         self.bot_id = int(self.getName()[7])
         self.timeStep = int(self.getBasicTimeStep())
+        self.updated = False
         self.prev_episode = 1
         self.episode_reward = 0
         self.episode_loss = 0.0
@@ -368,55 +370,45 @@ class Module(Supervisor):
             # run the NN and collect loss
             # TODO: do all payload creation here and pass the final to optimizer
 
-            # random episode sample
+            if self.episode > BUFFER_LIMIT:
+                episodes = range(BUFFER_LIMIT)
+            else:
+                episodes = range(self.episode-1)
+
             if self.episode - 1 == 0:
                 episode = 0
+                myself = True
             else:
-                if self.episode > BUFFER_LIMIT:
-                    episodes = range(self.episode-(BUFFER_LIMIT+1))
-                    if self.episode - (BUFFER_LIMIT+1) <= 0:
-                        episodes = list(range(1))
-                else:
-                    episodes = range(self.episode-1)
+                episode = self.episode
+                while episode == self.episode:
+                    episode = np.random.choice(episodes, 1)[0]
+                myself = False
 
-                episode = np.random.choice(episodes, 1)[0]
+
+            if episode == 0 and self.episode-1 == 0:
+                steps = range(len(self.episode_states_temp))
+
+            else:
+                steps = range(len(self.replay_buf_state[episode]))
 
             try:
-                # if we chose current episode as a sample episode,
-                if self.episode - 1 == episode or self.episode == episode:
-                    steps = range(len(self.episode_states_temp))
-                    # if self.bot_id == LEADER_ID:
-                    #     print(f"in self batch")
-                else:
-                    try:
-                        steps = range(len(self.replay_buf_state[episode]))
-                    except IndexError:
-                        if episode > self.replay_buf_state.__len__() and episode > 0:
-                            episode -= 1
-                            steps = range(len(self.replay_buf_state[episode]))
-                        else:
-                            print(f"Episode value: {episode}\nDeque len: {self.replay_buf_state.__len__()}\n"
-                                  f"Cannot get a value out of the buffer")
-                            exit(11)
-                    # if self.bot_id == LEADER_ID:
-                    #     print(f"in global batch")
-
                 sample = np.random.choice(steps, BATCH_SIZE-1, replace=False)
+            except ValueError:
+                print(f"Steps : {steps}\nEpisode : {episode}\n")
+                exit(1)
 
-            except TypeError:
-                if self.bot_id == LEADER_ID:
-                    print(f"self.episode >>> {self.episode}")
-                    print(f"episode >>> {episode}")
-                    print(f"episode_states_temp >>> {self.episode_states_temp} ({len(self.episode_states_temp)})")
-                    print(f"replay_buf_state >>> {self.replay_buf_state} ({len(self.replay_buf_state)})")
-                exit(11)
-
+            # check if we need to probe current episode
+            # if self.episode % BUFFER_LIMIT == episode or (self.episode % BUFFER_LIMIT) - 1 == episode:
+            #     myself = True
+            # else:
+            #     myself = False
             state_action_payloads = []
             expected_state_action_payloads = []
             for s in sample:
                 temp_sap = []
                 temp_esap = []
-                if self.episode - 1 == episode:
+                # TODO: simplify?
+                if myself:
                     # adding states
                     robot_state_vectors = list(itertools.chain(*self.episode_states_temp[s]))
                     # adding previous state
@@ -485,8 +477,15 @@ class Module(Supervisor):
                         temp_sap.append([robot_state_vectors, self.replay_buf_single_action[episode][s]])
                         temp_esap.append([robot_state__vectors, self.replay_buf_reward_[episode][s]])
 
-            self.loss = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
-                                            esap=expected_state_action_payloads, step=self.step_count)
+            self.loss, update = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
+                                            esap=expected_state_action_payloads, step=self.step_count, up=self.updated)
+            if self.episode % UPDATE_PERIOD ==0:
+                print(f"UPDATE: {update}")
+            if update:
+                self.updated = not update
+            else:
+                self.updated = update
+
             self.episode_loss += float(self.loss)
             state_action_payloads.clear()
             expected_state_action_payloads.clear()
@@ -606,6 +605,9 @@ class Module(Supervisor):
                     # current action and prev current action
                     self.replay_buf_single_action.extend([self.episode_single_action_temp])
                     self.replay_buf_single_action_.extend([self.episode_single_action__temp])
+
+                    if self.episode % UPDATE_PERIOD == 0:
+                        self.updated = True
 
                     if self.bot_id == LEADER_ID:
                         with open("log.txt", "a") as fout:
