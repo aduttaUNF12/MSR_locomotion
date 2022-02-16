@@ -111,7 +111,7 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
-    def optimize(self, episode=None, sap=None, esap=None, step=None):
+    def optimize(self, episode=None, sap=None, esap=None, step=None, up=None):
 
         state_action_values = []
         expected_state_action_values = []
@@ -233,13 +233,15 @@ class Agent:
             # original
             self.decrement_epsilon()
             # pass
-
-        if step >= BATCH_SIZE and step % UPDATE_PERIOD == 0:
+        updated = False
+        # if episode >= BATCH_SIZE and episode % UPDATE_PERIOD == 0:
+        if (episode % UPDATE_PERIOD == 0) and up:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{episode}")
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
             current_run = path_maker()
             torch.save(self.target_net.state_dict(), os.path.join(current_run, "agent.pt"))
+            updated = True
 
-        return loss
+        return loss, updated
 
