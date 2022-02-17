@@ -53,8 +53,9 @@ if __name__ == '__main__':
         module.total_time_elapsed = total_elapsed_time
 
         # if 0 <= total_elapsed_time % (60/10) <= 1:
-        if 0 <= total_elapsed_time % (60/15) <= 1:
+        # if 0 <= total_elapsed_time % (60/10) <= 1:
         # if 0 <= total_elapsed_time % 60 <= 1:
+        if 0 <= total_elapsed_time % (60/2) <= 1:
             if not assign_:
                 EPISODE += 1
                 module.episode = EPISODE

@@ -393,6 +393,8 @@ class Module(Supervisor):
 
             try:
                 sample = np.random.choice(steps, BATCH_SIZE-1, replace=False)
+                if self.bot_id == LEADER_ID:
+                    print(f"steps in ep ({episode}) >>> {steps}")
             except ValueError:
                 print(f"Steps : {steps}\nEpisode : {episode}\n")
                 exit(1)
@@ -479,8 +481,6 @@ class Module(Supervisor):
 
             self.loss, update = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
                                             esap=expected_state_action_payloads, step=self.step_count, up=self.updated)
-            if self.episode % UPDATE_PERIOD ==0:
-                print(f"UPDATE: {update}")
             if update:
                 self.updated = not update
             else:
@@ -530,6 +530,9 @@ class Module(Supervisor):
             self.states_to_vectors()
 
         elif self.t + (self.timeStep / 1000.0) < T:
+        # elif self.t + (self.timeStep / 1000.0) < 5.0:
+        #     if self.bot_id == LEADER_ID:
+        #         print(f"T before 5.0 >>> {self.t}")
             # carry out a function
             self.act.func()
 
@@ -645,7 +648,8 @@ class Module(Supervisor):
                         # exponential
                         if EPS_EXP:
                             if self.episode > DECAY_PAUSE_EPISODE:
-                                ep = MIN_EPSILON + (EPSILON - MIN_EPSILON) * math.exp(-1 * (self.episode - DECAY_PAUSE_EPISODE)/ EPSILON_DECAY)
+                                ep = MIN_EPSILON + (EPSILON - MIN_EPSILON) *\
+                                     math.exp(-1 * (self.episode - DECAY_PAUSE_EPISODE) / EPSILON_DECAY)
                             else:
                                 ep = 0.9
                         else:
@@ -670,6 +674,8 @@ class Module(Supervisor):
                 self.batch_updated = True
             else:
                 self.batch_updated = False
+
+            self.old_pos = self.new_pos
 
             # set previous action option to the new one
             self.step_count += 1
@@ -707,6 +713,6 @@ class Module(Supervisor):
         else:
             self.act = None
             self.sts = None
-            self.old_pos = self.gps.getValues()
+            # print(f"This is t >>> {self.t}")
             self.t = 0
 
