@@ -14,7 +14,8 @@ DECAY_PAUSE_EPISODE = 300
 if EPS_EXP:
     # EPSILON_DECAY = 7000  # for 20k (35%)
     # EPSILON_DECAY = 1750  # for 5k (35%)
-    EPSILON_DECAY = 200  #
+    # EPSILON_DECAY = 200  #
+    EPSILON_DECAY = 600  #
 else:
     # EPSILON_DECAY = 0.00226
     # EPSILON_DECAY = 0.005
@@ -25,10 +26,11 @@ else:
     # EPSILON_DECAY = 0.000000113
     # EPSILON_DECAY = 0.0000006
     # EPSILON_DECAY = 0.0000003
-T = 0.1
+# T = 0.1
+T = 0.59
 COMMUNICATION = True
 
-FIX = True
+FIX = False
 
 
 # Episode params
@@ -36,7 +38,8 @@ EPISODE = 0  # starting Episode number
 # MAX_EPISODE = 20000
 # MAX_EPISODE = 7000
 # MAX_EPISODE = 5000
-MAX_EPISODE = 600
+# MAX_EPISODE = 600
+MAX_EPISODE = 2000
 UPDATE_PERIOD = 10
 
 # Batch params

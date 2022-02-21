@@ -73,9 +73,6 @@ class Agent:
                 eps_threshold = (1 - self.epsilon)
                 res = sample < eps_threshold
             if res:
-                # #TODO: TEMP
-                # action = np.random.choice(self.action_space, 1)
-                # return action
                 payload = self.payload_maker(module_actions)
                 action = self.policy_net.forward(payload)
 
@@ -114,8 +111,7 @@ class Agent:
         else:
             self.epsilon = self.eps_min
 
-    def optimize(self, episode=None, sap=None, esap=None):
-        self.policy_net.optimizer.zero_grad()
+    def optimize(self, episode=None, sap=None, esap=None, step=None, up=None):
 
         state_action_values = []
         expected_state_action_values = []
@@ -211,7 +207,18 @@ class Agent:
                     fout.write(f"{thing}\n")
 
         # loss = self.policy_net.loss(state_action_values, expected_state_action_values)
-        loss = self.policy_net.loss(state_action_values.to(self.target_net.device), expected_state_action_values.double().float())
+        self.policy_net.optimizer.zero_grad()
+        loss = self.policy_net.loss(state_action_values.to(self.policy_net.device), expected_state_action_values.double().float())
+
+        if str(loss) is "nan":
+            if self.module_number == LEADER_ID:
+                with open("loss_log.txt", 'a') as fout:
+                    fout.write("################### State Action Values ###################\n")
+                    fout.write(f"{state_action_values}\n")
+                    fout.write("################### Expected State Action Values ###################\n")
+                    fout.write(f"{expected_state_action_values}\n")
+                    fout.write("################### Loss ###################\n")
+                    fout.write(f"{loss}\n")
 
         if self.module_number == LEADER_ID:
             with open("log.txt", "a") as fout:
@@ -226,13 +233,15 @@ class Agent:
             # original
             self.decrement_epsilon()
             # pass
-
-        if episode >= BATCH_SIZE and episode % UPDATE_PERIOD == 0:
+        updated = False
+        # if episode >= BATCH_SIZE and episode % UPDATE_PERIOD == 0:
+        if (episode % UPDATE_PERIOD == 0) and up:
             print(f"Updated model: {time.strftime('%H:%M:%S', time.localtime())} ============== Episode:{episode}")
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
             current_run = path_maker()
             torch.save(self.target_net.state_dict(), os.path.join(current_run, "agent.pt"))
+            updated = True
 
-        return loss
+        return loss, updated
 
