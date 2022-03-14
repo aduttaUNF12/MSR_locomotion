@@ -3,7 +3,6 @@ import math
 import sys
 import os
 import itertools
-import collections
 from collections import deque
 
 import numpy as np
@@ -13,7 +12,6 @@ from .constants import EPSILON, NUM_MODULES, GAMMA, MIN_EPSILON,\
     T, BATCH_SIZE, LEADER_ID, BUFFER_LIMIT, NN_TYPE, COMMUNICATION, EPSILON_DECAY, FIX, EPS_EXP, DECAY_PAUSE_EPISODE,\
     UPDATE_PERIOD
 from .agent import Agent
-from .buffers import ReplayBuffer
 from .loggers import writer, path_maker
 
 from controller import Supervisor
@@ -393,8 +391,8 @@ class Module(Supervisor):
 
             try:
                 sample = np.random.choice(steps, BATCH_SIZE-1, replace=False)
-                if self.bot_id == LEADER_ID:
-                    print(f"steps in ep ({episode}) >>> {steps}")
+                # if self.bot_id == LEADER_ID:
+                #     print(f"steps in ep ({episode}) >>> {steps}")
             except ValueError:
                 print(f"Steps : {steps}\nEpisode : {episode}\n")
                 exit(1)
@@ -407,8 +405,6 @@ class Module(Supervisor):
             state_action_payloads = []
             expected_state_action_payloads = []
             for s in sample:
-                temp_sap = []
-                temp_esap = []
                 # TODO: simplify?
                 if myself:
                     # adding states
@@ -425,14 +421,21 @@ class Module(Supervisor):
                         robot_state__vectors += list(itertools.chain(*self.episode_actions__temp[s]))
 
                     # adding mean actions
-                    robot_state_vectors += list(itertools.chain(*self.episode_mean_actions_temp[s]))
+                    robot_state_vectors.extend(list(self.episode_mean_actions_temp[s][self.bot_id-1]))
                     # original
                     if not FIX:
-                        robot_state__vectors += list(itertools.chain(*self.episode_mean_actions_temp[s]))
+                        # robot_state__vectors += list(itertools.chain(*self.episode_mean_actions_temp[s]))
+                        robot_state__vectors.extend(list(self.episode_mean_actions_temp[s][self.bot_id-1]))
                     else:
                         # fix
-                        robot_state__vectors += list(itertools.chain(*self.episode_mean_actions__temp[s]))
+                        # robot_state__vectors += list(itertools.chain(*self.episode_mean_actions__temp[s]))
+                        robot_state__vectors.extend(list(self.episode_mean_actions__temp[s][self.bot_id-1]))
 
+                    # adding reward
+                    robot_state_vectors.append(self.episode_reward_temp[s])
+                    robot_state__vectors.append(self.episode_reward_temp[s])
+                    # if self.bot_id == LEADER_ID:
+                    #     print(f"RSV >>> {robot_state_vectors} ({len(robot_state_vectors)})\nRSV_ >>> {robot_state__vectors} ({len(robot_state__vectors)})")
                     state_action_payloads.append([robot_state_vectors, self.episode_single_action_temp[s]])
                     # original
                     if not FIX:
@@ -441,9 +444,6 @@ class Module(Supervisor):
                         # fix
                         expected_state_action_payloads.append([robot_state__vectors, self.episode_reward__temp[s]])
 
-                    if s < 32:
-                        temp_sap.append([robot_state_vectors, self.episode_single_action_temp[s]])
-                        temp_esap.append([robot_state__vectors, self.episode_reward__temp[s]])
                 else:
                     # adding states
                     robot_state_vectors = list(itertools.chain(*self.replay_buf_state[episode][s]))
@@ -459,13 +459,18 @@ class Module(Supervisor):
                         robot_state__vectors += list(itertools.chain(*self.replay_buf_action_[episode][s]))
 
                     # adding mean actions
-                    robot_state_vectors += list(itertools.chain(*self.replay_buf_mean_action[episode][s]))
+                    robot_state_vectors.extend(list(self.replay_buf_mean_action[episode][s][self.bot_id-1]))
                     # original
                     if not FIX:
-                        robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action[episode][s]))
+                        robot_state__vectors.extend(list(self.replay_buf_mean_action[episode][s][self.bot_id-1]))
+                        # robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action[episode][s]))
                     else:
                         # fix
-                        robot_state__vectors += list(itertools.chain(*self.replay_buf_mean_action_[episode][s]))
+                        robot_state__vectors.extend(list(self.replay_buf_mean_action_[episode][s][self.bot_id-1]))
+
+                    # adding reward
+                    robot_state_vectors.append(self.replay_buf_reward[episode][s])
+                    robot_state__vectors.append(self.replay_buf_reward[episode][s])
 
                     state_action_payloads.append([robot_state_vectors, self.replay_buf_single_action[episode][s]])
                     # original
@@ -474,10 +479,6 @@ class Module(Supervisor):
                     else:
                         # fix
                         expected_state_action_payloads.append([robot_state__vectors, self.replay_buf_reward_[episode][s]])
-
-                    if s < 32:
-                        temp_sap.append([robot_state_vectors, self.replay_buf_single_action[episode][s]])
-                        temp_esap.append([robot_state__vectors, self.replay_buf_reward_[episode][s]])
 
             self.loss, update = self.agent.optimize(episode=self.episode, sap=state_action_payloads,
                                             esap=expected_state_action_payloads, step=self.step_count, up=self.updated)
@@ -494,7 +495,7 @@ class Module(Supervisor):
     def learn(self):
         # If current action is None
         if self.act is None:
-            # get actions which were send by other modules, if ret is 2 that means that not all modules sent their
+            # get actions which were sent by other modules, if ret is 2 that means that not all modules sent their
             # actions yet, so loop while you wait for them to come
             ret = self.get_other_module_actions()
             if ret == 2:
@@ -519,7 +520,7 @@ class Module(Supervisor):
             ret = self.get_other_module_actions()
             if ret == 2:
                 if self.tries > 100:
-                    print("Error with tries")
+                    print("Error with tries STATE")
                     exit(11)
                 self.tries += 1
                 return
@@ -612,18 +613,18 @@ class Module(Supervisor):
                     if self.episode % UPDATE_PERIOD == 0:
                         self.updated = True
 
-                    if self.bot_id == LEADER_ID:
-                        with open("log.txt", "a") as fout:
-                            fout.write(f"################### EPISODE #{self.episode} ###################\n")
-                            fout.write(f"################### States ###################\n")
-                            for thing in self.episode_states_temp[0:32][0:32]:
-                                fout.write(f"{thing}\n")
-                            fout.write(f"################### Actions ###################\n")
-                            for thing in self.episode_actions_temp[0:32][0:32]:
-                                fout.write(f"{thing}\n")
-                            fout.write(f"################### Mean Actions ###################\n")
-                            for thing in self.episode_mean_actions_temp[0:32]:
-                                fout.write(f"{thing}\n")
+                    # if self.bot_id == LEADER_ID:
+                    #     with open("log.txt", "a") as fout:
+                    #         fout.write(f"################### EPISODE #{self.episode} ###################\n")
+                    #         fout.write(f"################### States ###################\n")
+                    #         for thing in self.episode_states_temp[0:32][0:32]:
+                    #             fout.write(f"{thing}\n")
+                    #         fout.write(f"################### Actions ###################\n")
+                    #         for thing in self.episode_actions_temp[0:32][0:32]:
+                    #             fout.write(f"{thing}\n")
+                    #         fout.write(f"################### Mean Actions ###################\n")
+                    #         for thing in self.episode_mean_actions_temp[0:32]:
+                    #             fout.write(f"{thing}\n")
 
                     # clearing current episode arrays
 
@@ -688,8 +689,10 @@ class Module(Supervisor):
                 # robot_state_vectors.append(list(itertools.chain(*self.global_actions_vectors)))
                 robot_state_vectors += list(itertools.chain(*self.global_actions_vectors))
                 # robot_state_vectors.append(list(itertools.chain(*self.global_mean_action_vectors)))
-                robot_state_vectors += list(itertools.chain(*self.global_mean_action_vectors))
-                # robot_state_vectors.append(self.reward)
+                robot_state_vectors.extend(list(self.global_mean_action_vectors[self.bot_id-1]))
+                robot_state_vectors.append(self.reward)
+                # if self.bot_id == LEADER_ID:
+                #     print(f"MOD 1 sending to get action >>> {robot_state_vectors}")
             else:
                 # get the array of state vectors
                 t_action = self.global_states_vectors[0:NUM_MODULES][self.bot_id-1]

@@ -163,15 +163,14 @@ class FCNN(nn.Module):
             # self.number_of_modules*9 since each module has 3 input channels and each channel
             #   has a relating 3 piece vector
             # self.fc1 = nn.Linear(self.number_of_modules*9, self.number_of_modules*9).to(self.device)
-            self.fc1 = nn.Linear(self.number_of_modules*9, 32).to(self.device)
+            self.fc1 = nn.Linear(22, 16).to(self.device)
         else:
             self.fc1 = nn.Linear((2*self.number_of_modules) + 1, 32).to(self.device)
 
         # self.fc2 = nn.Linear(self.number_of_modules*9, self.number_of_modules*9).to(self.device)
-        self.fc2 = nn.Linear(32, 64).to(self.device)
+        self.fc2 = nn.Linear(16, 9).to(self.device)
         # self.fc3 = nn.Linear(self.number_of_modules*9, 3).to(self.device)
-        self.fc3 = nn.Linear(64, 3).to(self.device)
-        # TODO: add another fc layer with (self.number_of_modules*9)/9, 3 set up
+        self.fc3 = nn.Linear(9, 3).to(self.device)
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.loss = nn.MSELoss()
