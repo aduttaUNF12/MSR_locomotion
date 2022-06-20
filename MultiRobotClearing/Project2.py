@@ -30,7 +30,8 @@ state_size = 3 * N * N
 m_actions = environment.action_count
 embedding_size = 8
 minibatch = 64
-buffer = 10000 * state_size
+# buffer = 10000 * state_size
+buffer = 100000
 sample_length = 64
 memories = []
 main_memory = ExpBuffer(buffer, sample_length)
@@ -39,24 +40,29 @@ for robot in robots:
 eps_start = 0.9
 EPS = eps_start
 eps_end = 0.05
-eps_decay = 2000
+# eps_decay = 2000
+eps_decay = 220
 gamma = 0.99
 learning_rate = 0.001
 blind_prob = 0
-EXPLORE = 3000
-EPISODES = 10000
+# EXPLORE = 3000
+EXPLORE = 200
+# EPISODES = 10000
+EPISODES = 1000
 
 models = []
 model_targets = []
 adams = []
+schedulers = []
 for i, r in enumerate(range(NUM_MODULES)):
     models.append(Model().double().to(device))
 # model = Model().double().to(device)
     model_targets.append(Model().double().to(device))
     model_targets[i].load_state_dict(models[i].state_dict())
     model_targets[i].eval()
-
-    adams.append(torch.optim.Adam(models[i].parameters(), lr=learning_rate))
+    adam = torch.optim.Adam(models[i].parameters(), lr=learning_rate)
+    adams.append(adam)
+    schedulers.append(torch.optim.lr_scheduler.ReduceLROnPlateau(adam, 'min'))
 
 # =============================================================================
 # def convert_to_image(info, i):
@@ -71,7 +77,7 @@ for i, r in enumerate(range(NUM_MODULES)):
 # =============================================================================
 
 
-def optimize_model(episode, model, model_target, adam, memory, r_id):
+def optimize_model(episode, model, model_target, adam, memory, scheduler, r_id):
     EPS = eps_end + (eps_start - eps_end) * \
          math.exp(-1. * (episode - EXPLORE) / eps_decay)
     difference_function = torch.nn.MSELoss()
@@ -110,12 +116,10 @@ def optimize_model(episode, model, model_target, adam, memory, r_id):
 
 
     difference = difference_function(q_values, final_results.unsqueeze(-1).detach())
-
-
-
     difference.backward()
 
     adam.step()
+    scheduler.step(difference)
 
     return difference, EPS
 
@@ -127,6 +131,7 @@ def optimize_model(episode, model, model_target, adam, memory, r_id):
 import logging 
 
 epsilon_tracker = []
+all_data = []
 percentage_covered = []
 loss_values = []
 episode_coordinates = []
@@ -156,7 +161,7 @@ for episode in range(EPISODES):
     last_action = 0
     ep_rwd = {}
     for robot_id, robot in enumerate(robots):
-        ep_rwd[robot_id] = 0
+        ep_rwd[robot_id] = 0.0
 
     #last_observation = environment.environment
     observation = environment.environment
@@ -183,7 +188,7 @@ for episode in range(EPISODES):
         elif robot_id == 3:
             environment.reset(x=N-1, y=N-1, agent=robot)
     plot = None
-    plot = Plotter(N, environment.environment)
+    plot = Plotter(N, environment.environment, environment.environment[0])
 
     for t in count():
         actions = []
@@ -197,11 +202,20 @@ for episode in range(EPISODES):
             else:
                 m_a = 0.0
             try:
-                # TODO: make an infinite loop to see if the robot gets a new state which has no one in it
-                # TODO: ADD lazy reward
-                # TODO: ADD fully explored reward
-                # TODO: look at recent papers on multi robot coverage and see their parameters (ONLY DEEP REINFORCEMENT COVERAGE)
-                action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+                while True:
+                    action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+                    if len(robot_positions) > 0:
+                        cur_state = environment.sym_move(action, robot)
+                        status = True
+                        for pos in robot_positions:
+                            if cur_state[0] == pos[0] and cur_state[1] == pos[1]:
+                                status = True
+                            else:
+                                status = False
+                        if not status:
+                            break
+                    else:
+                        break
             except RuntimeError as e:
                 print(e)
                 print("runtime ERROR")
@@ -212,7 +226,8 @@ for episode in range(EPISODES):
                 print(len(mean_actions))
                 exit(1)
             # print(f"[{robot_id}] action taken: {action[0][0]}  Episode: {episode}")
-            # robot_positions.append()
+            sym = environment.sym_move(action, robot)
+            robot_positions.append(sym)
             plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
             next_observation, old_x, reward, done, old_y = environment.step(action, robot, robot_id)
             # plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
@@ -248,19 +263,20 @@ for episode in range(EPISODES):
             percentage_covered.append((episode, environment.p_completion))
             episode_coordinates.append((episode, coordinates))
             epsilon_tracker.append((episode, EPS))
-            ep_rwd_avg = 0
+            ep_rwd_avg = 0.0
             for robot_id, robot in enumerate(robots):
                 ep_rwd_avg += ep_rwd[robot_id]
             ep_rwd_avg = ep_rwd_avg/len(robots)
             # reward_tracker.append((episode, int(ep_rwd)))
-            reward_tracker.append((episode, int(ep_rwd_avg)))
+            reward_tracker.append((episode, float(ep_rwd_avg)))
+            all_data.append((episode, environment.p_completion, EPS, int(ep_rwd_avg), t, loss_sum[0]))
             end = time.time()
             # print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {int(ep_rwd)}")
-            print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {int(ep_rwd_avg)}")
+            print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {float(ep_rwd_avg)}")
             print(f"Total number of steps were {t}")
             plot.to_gif(episode)
-            with open("./graphs/Episode_{}/reward_{}_{}.txt".format(episode, "p" if ep_rwd_avg > 0 else "n", int(ep_rwd_avg)), "w") as fout:
-                fout.write("{}\n".format(int(ep_rwd_avg)))
+            with open("./graphs/Episode_{}/reward_{}_{}.txt".format(episode, "p" if ep_rwd_avg > 0 else "n", float(ep_rwd_avg)), "w") as fout:
+                fout.write("{}\n".format(float(ep_rwd_avg)))
             break
         if episode > EXPLORE:
             observations, actions, next_observations, rewards, mean_actions_ = main_memory.sample_with_batch(minibatch)
@@ -268,7 +284,7 @@ for episode in range(EPISODES):
             push_data = [observations, actions, next_observations, rewards, mean_actions_]
             for robot_id, robot in enumerate(robots):
                 loss, eps = optimize_model(episode, models[robot_id], model_targets[robot_id],
-                                           adams[robot_id], push_data, robot_id)
+                                           adams[robot_id], push_data, schedulers[robot_id], robot_id)
                 EPS = eps
                 loss_sum[robot_id] += float(loss) #float(loss) is for the optimization of the code.
                 tracker = t
@@ -279,6 +295,7 @@ for episode in range(EPISODES):
         loss_avg = loss_avg/len(robots)
         # loss_values.append((episode, loss_sum / tracker))
         loss_values.append((episode, loss_avg / tracker))
+
         # logging.info(f"The loss for episode: {episode} is {loss_sum / tracker}")
         logging.info(f"The loss for episode: {episode} is {loss_avg / tracker}")
 
@@ -287,7 +304,7 @@ for episode in range(EPISODES):
             model_targets[model_id].load_state_dict(model.state_dict())
 
 
-pd.DataFrame(all_data, columns=["Episode", "Completed", "Epsilon", "Rewards", "Violations", "Steps", "Loss"]).to_csv("resultsData.csv", index=False)
+pd.DataFrame(all_data, columns=["Episode", "Completed", "Epsilon", "Rewards", "Steps", "Loss"]).to_csv("resultsData.csv", index=False)
 pd.DataFrame(episode_coordinates, columns=["Episode", "Coordinates"]).to_csv("EpisodeCoordinates.csv", index=False)
 
 #

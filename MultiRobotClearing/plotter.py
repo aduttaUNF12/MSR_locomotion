@@ -3,7 +3,7 @@ import os
 
 
 class Plotter:
-    def __init__(self, N, env):
+    def __init__(self, N, env, obs):
         import torch
         env = torch.zeros((3 ,16, 16))
         plt.gca().cla()
@@ -32,7 +32,7 @@ class Plotter:
         }
 
         # obstacles
-        for pos_y, i in enumerate(env[0]):
+        for pos_y, i in enumerate(obs):
             for pos_x, j in enumerate(i):
                 if j == 1:
                     self.obstacle_pos["x"].append(pos_x, )

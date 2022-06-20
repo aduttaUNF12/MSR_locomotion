@@ -1,0 +1,8 @@
+06/14/22
+eps decay 220
+explore 200
+episodes 1000
+
+06/20/22
+same as 06/14/22
+added scheduler 

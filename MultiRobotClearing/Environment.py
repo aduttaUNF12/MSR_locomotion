@@ -106,15 +106,19 @@ class Environment():
         if self.environment[2][agent.x_coordinate][agent.y_coordinate] == 0: #0 = unvisited state
             reward += 1
         elif self.environment[2][agent.x_coordinate][agent.y_coordinate] == 1: #2 visited state
-            try:
-                # reward += -1*self.visit_count[agent_id][agent.x_coordinate][agent.y_coordinate]
-                reward += -1
-            except KeyError:
-                reward += -1
+            # LAZY PENALTY
+            if action == 8:
+                reward -= 0.1
+            else:
+                try:
+                    # reward += -1*self.visit_count[agent_id][agent.x_coordinate][agent.y_coordinate]
+                    reward += -1
+                except KeyError:
+                    reward += -1
 
         # HIT AN OBSTACLE
         if hit:
-            reward -= 5
+            reward -= 0.5
         """
         each state is represented as [0, 0, 0]cla
 
@@ -141,6 +145,29 @@ class Environment():
             reward += 200
             
         return self.environment, old_x, reward, done, old_y
+
+    @staticmethod
+    def sym_move(action, agent):
+        old_x, old_y = agent.x_coordinate, agent.y_coordinate
+        actions = {
+            0: (agent.x_coordinate, agent.y_coordinate + 1),      #   up
+            1: (agent.x_coordinate, agent.y_coordinate - 1),      #   down
+            2: (agent.x_coordinate + 1, agent.y_coordinate),      #   right
+            3: (agent.x_coordinate - 1, agent.y_coordinate),      #   left
+            4: (agent.x_coordinate + 1, agent.y_coordinate - 1),  #   diagonal bottom right
+            5: (agent.x_coordinate - 1, agent.y_coordinate - 1),  #   diagonal bottom left
+            6: (agent.x_coordinate + 1, agent.y_coordinate + 1),  #   diagonal top right
+            7: (agent.x_coordinate - 1, agent.y_coordinate + 1),  #   diagonal top left
+            8: (agent.x_coordinate, agent.y_coordinate),          #   stay
+        }
+        """
+        This is checking to make sure that the robot is not going out of bounds
+        
+        """
+        new_state = actions[action.flatten()[0].item()]
+        agent.x_coordinate = old_x
+        agent.y_coordinate = old_y
+        return new_state
 
     def move_robot(self, action, agent):
             old_x, old_y = agent.x_coordinate, agent.y_coordinate
