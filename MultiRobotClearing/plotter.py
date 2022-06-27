@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+from PIL import Image
+import io
 import os
 
 
@@ -13,6 +15,8 @@ class Plotter:
         self.max_y = []
 
         self.visited = env[2]
+
+        self.imgs = []
 
         self.robot_colors = {
             1: "red",
@@ -82,15 +86,14 @@ class Plotter:
             os.mkdir("./graphs/Episode_{}".format(ep))
         except FileExistsError:
             pass
-
-        plt.savefig("./graphs/Episode_{}/{}.png".format(ep, step))
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        self.imgs.append(buf)
 
     def to_gif(self, ep):
-        import glob
-        from PIL import Image
         frames = []
-        imgs = sorted(glob.glob("./graphs/Episode_{}/*.png".format(ep)), key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-        for i in imgs:
+        for i in self.imgs:
             new_frame = Image.open(i)
             frames.append(new_frame)
 
@@ -98,7 +101,7 @@ class Plotter:
                        append_images=frames[1:],
                        save_all=True,
                        duration=50, loop=0)
-
+        self.imgs = []
 
 
 # if __name__ == '__main__':
