@@ -89,18 +89,13 @@ class Plotter:
         buf = io.BytesIO()
         plt.savefig(buf, format="png")
         buf.seek(0)
-        self.imgs.append(buf)
+        self.imgs.append(Image.open(buf))
 
     def to_gif(self, ep):
-        frames = []
-        for i in self.imgs:
-            new_frame = Image.open(i)
-            frames.append(new_frame)
-
-        frames[0].save("./graphs/Episode_{}/final.gif".format(ep), format='GIF',
-                       append_images=frames[1:],
-                       save_all=True,
-                       duration=50, loop=0)
+        self.imgs[0].save("./graphs/Episode_{}/final.gif".format(ep), format='GIF',
+                           append_images=self.imgs[1:],
+                           save_all=True,
+                           duration=50, loop=0)
         self.imgs = []
 
 
