@@ -7,7 +7,7 @@ import random
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Model(nn.Module):
-    def __init__(self):
+    def __init__(self, gpu):
         super(Model, self).__init__()
         self.random_actions = 0
         self.model_actions = 0
@@ -15,11 +15,12 @@ class Model(nn.Module):
         self.embedding_size = 8
         self.width = 16
         self.height = 16
-        self.embedder = nn.Linear(self.n_actions, self.embedding_size)
-        self.observation_layer = nn.Conv2d(3, 16, kernel_size=5, stride=1)
-        self.norm1 = nn.BatchNorm2d(8)
-        self.observation_layer2 = nn.Conv2d(16, 16, kernel_size=5, stride=1)
-        self.norm2 = nn.BatchNorm2d(8)
+        self.to(gpu)
+        self.embedder = nn.Linear(self.n_actions, self.embedding_size).to(gpu)
+        self.observation_layer = nn.Conv2d(3, 16, kernel_size=5, stride=1).to(gpu)
+        self.norm1 = nn.BatchNorm2d(8).to(gpu)
+        self.observation_layer2 = nn.Conv2d(16, 16, kernel_size=5, stride=1).to(gpu)
+        self.norm2 = nn.BatchNorm2d(8).to(gpu)
         #self.observation_layer2 = nn.Conv2d(16, 32, kernel_size=3, stride=1)
         #self.observation_layer3 = nn.Conv2d(32, 32, kernel_size=3, stride=1)
        #
@@ -34,10 +35,10 @@ class Model(nn.Module):
         #width = convert_to_size(convert_to_size(convert_to_size(self.width)))
         #height = convert_to_size(convert_to_size(convert_to_size(self.height)))
 
-        self.linear_layer1 = nn.Linear(16 * self.width * self.height + 1, 256)
-        self.linear_layer2 = nn.Linear(256, 256)
-        self.linear_layer3 = nn.Linear(256, 256)
-        self.output_layer = nn.Linear(256, 9)
+        self.linear_layer1 = nn.Linear(16 * self.width * self.height + 1, 256).to(gpu)
+        self.linear_layer2 = nn.Linear(256, 256).to(gpu)
+        self.linear_layer3 = nn.Linear(256, 256).to(gpu)
+        self.output_layer = nn.Linear(256, 9).to(gpu)
 
     def forward(self, observation, budget):
         #action_embedded = self.embedder(action)

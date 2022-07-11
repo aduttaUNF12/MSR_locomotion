@@ -12,8 +12,10 @@ import pandas as pd
 import time
 #import cv2
 
-import logging 
+import logging
 
+import warnings
+warnings.filterwarnings("ignore")
 
 logging.basicConfig(filename="Project2.log", filemode="w", level=logging.INFO)
 
@@ -41,23 +43,24 @@ eps_start = 0.9
 EPS = eps_start
 eps_end = 0.05
 # eps_decay = 2000
-eps_decay = 220
+eps_decay = 600
 gamma = 0.99
 learning_rate = 0.001
 blind_prob = 0
+EPISODES = 3000
 # EXPLORE = 3000
-EXPLORE = 200
+EXPLORE = EPISODES * 0.2
 # EPISODES = 10000
-EPISODES = 1000
+
 
 models = []
 model_targets = []
 adams = []
 schedulers = []
 for i, r in enumerate(range(NUM_MODULES)):
-    models.append(Model().double().to(device))
+    models.append(Model(device).double().to(device))
 # model = Model().double().to(device)
-    model_targets.append(Model().double().to(device))
+    model_targets.append(Model(device).double().to(device))
     model_targets[i].load_state_dict(models[i].state_dict())
     model_targets[i].eval()
     adam = torch.optim.Adam(models[i].parameters(), lr=learning_rate)
@@ -201,6 +204,9 @@ for episode in range(EPISODES):
                 m_a = mean_actions[robot_id]
             else:
                 m_a = 0.0
+
+            # action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+
             try:
                 while True:
                     action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
