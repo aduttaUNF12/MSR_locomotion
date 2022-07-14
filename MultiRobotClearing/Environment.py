@@ -154,11 +154,11 @@ class Environment():
             1: (agent.x_coordinate, agent.y_coordinate - 1),      #   down
             2: (agent.x_coordinate + 1, agent.y_coordinate),      #   right
             3: (agent.x_coordinate - 1, agent.y_coordinate),      #   left
-            4: (agent.x_coordinate + 1, agent.y_coordinate - 1),  #   diagonal bottom right
-            5: (agent.x_coordinate - 1, agent.y_coordinate - 1),  #   diagonal bottom left
-            6: (agent.x_coordinate + 1, agent.y_coordinate + 1),  #   diagonal top right
-            7: (agent.x_coordinate - 1, agent.y_coordinate + 1),  #   diagonal top left
-            8: (agent.x_coordinate, agent.y_coordinate),          #   stay
+            # 4: (agent.x_coordinate + 1, agent.y_coordinate - 1),  #   diagonal bottom right
+            # 5: (agent.x_coordinate - 1, agent.y_coordinate - 1),  #   diagonal bottom left
+            # 6: (agent.x_coordinate + 1, agent.y_coordinate + 1),  #   diagonal top right
+            # 7: (agent.x_coordinate - 1, agent.y_coordinate + 1),  #   diagonal top left
+            4: (agent.x_coordinate, agent.y_coordinate),          #   stay
         }
         """
         This is checking to make sure that the robot is not going out of bounds
@@ -176,11 +176,11 @@ class Environment():
                 1: (agent.x_coordinate, agent.y_coordinate - 1),      #   down
                 2: (agent.x_coordinate + 1, agent.y_coordinate),      #   right
                 3: (agent.x_coordinate - 1, agent.y_coordinate),      #   left
-                4: (agent.x_coordinate + 1, agent.y_coordinate - 1),  #   diagonal bottom right
-                5: (agent.x_coordinate - 1, agent.y_coordinate - 1),  #   diagonal bottom left
-                6: (agent.x_coordinate + 1, agent.y_coordinate + 1),  #   diagonal top right
-                7: (agent.x_coordinate - 1, agent.y_coordinate + 1),  #   diagonal top left
-                8: (agent.x_coordinate, agent.y_coordinate),          #   stay
+                # 4: (agent.x_coordinate + 1, agent.y_coordinate - 1),  #   diagonal bottom right
+                # 5: (agent.x_coordinate - 1, agent.y_coordinate - 1),  #   diagonal bottom left
+                # 6: (agent.x_coordinate + 1, agent.y_coordinate + 1),  #   diagonal top right
+                # 7: (agent.x_coordinate - 1, agent.y_coordinate + 1),  #   diagonal top left
+                4: (agent.x_coordinate, agent.y_coordinate),          #   stay
             }
             """
             This is checking to make sure that the robot is not going out of bounds
@@ -210,15 +210,15 @@ class Environment():
 
     def get_action(self, action, x_coordinate, y_coordinate):
         actions = {
-            0: (x_coordinate, y_coordinate + 1),
-            1: (x_coordinate, y_coordinate - 1),
-            2: (x_coordinate + 1, y_coordinate),
-            3: (x_coordinate - 1, y_coordinate),
-            4: (x_coordinate + 1, y_coordinate - 1),
-            5: (x_coordinate - 1, y_coordinate - 1),
-            6: (x_coordinate + 1, y_coordinate + 1),
-            7: (x_coordinate - 1, y_coordinate + 1),
-            8: (x_coordinate, y_coordinate)
+            0: (x_coordinate, y_coordinate + 1),    # UP
+            1: (x_coordinate, y_coordinate - 1),    # DOWN
+            2: (x_coordinate + 1, y_coordinate),    # RIGHT
+            3: (x_coordinate - 1, y_coordinate),    # LEFT
+            # 4: (x_coordinate + 1, y_coordinate - 1),
+            # 5: (x_coordinate - 1, y_coordinate - 1),
+            # 6: (x_coordinate + 1, y_coordinate + 1),
+            # 7: (x_coordinate - 1, y_coordinate + 1),
+            4: (x_coordinate, y_coordinate)         # STAY
         }
         return actions[action]
 

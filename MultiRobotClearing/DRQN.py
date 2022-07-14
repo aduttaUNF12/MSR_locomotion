@@ -38,7 +38,7 @@ class Model(nn.Module):
         self.linear_layer1 = nn.Linear(16 * self.width * self.height + 1, 256).to(gpu)
         self.linear_layer2 = nn.Linear(256, 256).to(gpu)
         self.linear_layer3 = nn.Linear(256, 256).to(gpu)
-        self.output_layer = nn.Linear(256, 9).to(gpu)
+        self.output_layer = nn.Linear(256, 5).to(gpu)
 
     def forward(self, observation, budget):
         #action_embedded = self.embedder(action)
