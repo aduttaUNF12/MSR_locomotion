@@ -44,7 +44,7 @@ class Robot():
             temp_q_values = environment.check_action(action=q_values, x_coordinate=self.x_coordinate, y_coordinate=self.y_coordinate)
         if epsilon > random.random():
             while True:
-                action = torch.randint(0, 9, (1,)).item()
+                action = torch.randint(0, 5, (1,)).item()
                 if temp_q_values.flatten()[action] != float("-inf"):
                     break
             return torch.tensor([[action]]), epsilon
