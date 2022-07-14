@@ -262,8 +262,8 @@ for episode in range(EPISODES):
         plot.graph(episode, t)
         # exit(1)
         main_memory.push(observations, actions, observations_n, rewards, mean_actions)
-        # if t == 3 * N * N:
-        if t == N * N:
+        if t == 3 * N * N:
+            # if t == N * N:
             done = True
         if done:
             percentage_covered.append((episode, environment.p_completion))
