@@ -107,7 +107,7 @@ class Environment():
             reward += 1
         elif self.environment[2][agent.x_coordinate][agent.y_coordinate] == 1: #2 visited state
             # LAZY PENALTY
-            if action == 8:
+            if action == 4:
                 reward -= 0.1
             else:
                 try:
@@ -119,6 +119,8 @@ class Environment():
         # HIT AN OBSTACLE
         if hit:
             reward -= 0.5
+            with open("hits.txt", "a") as fout:
+                fout.write(f"{agent_id} {agent}")
         """
         each state is represented as [0, 0, 0]cla
 

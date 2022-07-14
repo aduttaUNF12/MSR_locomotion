@@ -43,13 +43,15 @@ eps_start = 0.9
 EPS = eps_start
 eps_end = 0.05
 # eps_decay = 2000
-eps_decay = 600
+# eps_decay = 600
+eps_decay = 1200
 gamma = 0.99
 learning_rate = 0.001
 blind_prob = 0
-EPISODES = 3000
+EPISODES = 5000
 # EXPLORE = 3000
-EXPLORE = EPISODES * 0.2
+# EXPLORE = EPISODES * 0.2
+EXPLORE = 700
 # EPISODES = 10000
 
 
@@ -191,7 +193,7 @@ for episode in range(EPISODES):
         elif robot_id == 3:
             environment.reset(x=N-1, y=N-1, agent=robot)
     plot = None
-    plot = Plotter(N, environment.environment, environment.environment[0])
+    # plot = Plotter(N, environment.environment, environment.environment[0])
 
     for t in count():
         actions = []
@@ -234,7 +236,7 @@ for episode in range(EPISODES):
             # print(f"[{robot_id}] action taken: {action[0][0]}  Episode: {episode}")
             sym = environment.sym_move(action, robot)
             robot_positions.append(sym)
-            plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
+            # plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
             next_observation, old_x, reward, done, old_y = environment.step(action, robot, robot_id)
             # plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
             observations_n.append(next_observation.view(1, 3, N, N))
@@ -259,7 +261,7 @@ for episode in range(EPISODES):
                     temp += actions[ii]
             temp /= len(actions)-1
             mean_actions.append(torch.tensor([temp]).view(1,1))
-        plot.graph(episode, t)
+        # plot.graph(episode, t)
         # exit(1)
         main_memory.push(observations, actions, observations_n, rewards, mean_actions)
         if t == 3 * N * N:
@@ -280,9 +282,9 @@ for episode in range(EPISODES):
             # print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {int(ep_rwd)}")
             print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {float(ep_rwd_avg)}")
             print(f"Total number of steps were {t}")
-            plot.to_gif(episode)
-            with open("./graphs/Episode_{}/reward_{}_{}.txt".format(episode, "p" if ep_rwd_avg > 0 else "n", float(ep_rwd_avg)), "w") as fout:
-                fout.write("{}\n".format(float(ep_rwd_avg)))
+            # plot.to_gif(episode)
+            # with open("./graphs/Episode_{}/reward_{}_{}.txt".format(episode, "p" if ep_rwd_avg > 0 else "n", float(ep_rwd_avg)), "w") as fout:
+            #     fout.write("{}\n".format(float(ep_rwd_avg)))
             break
         if episode > EXPLORE:
             observations, actions, next_observations, rewards, mean_actions_ = main_memory.sample_with_batch(minibatch)
