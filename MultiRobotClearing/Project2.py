@@ -214,6 +214,8 @@ for episode in range(EPISODES):
 
             # action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
 
+            robot.previous_x = robot.x_coordinate
+            robot.previous_y = robot.y_coordinate
             try:
                 while True:
                     action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
