@@ -44,14 +44,19 @@ EPS = eps_start
 eps_end = 0.05
 # eps_decay = 2000
 # eps_decay = 600
-eps_decay = 1200
+# TODO: FOR TESTING
+eps_decay = 250
+# eps_decay = 1200
 gamma = 0.99
 learning_rate = 0.001
 blind_prob = 0
-EPISODES = 5000
+# EPISODES = 5000
+# TODO: FOR TESTING
+EPISODES = 2000
 # EXPLORE = 3000
-# EXPLORE = EPISODES * 0.2
-EXPLORE = 700
+# TODO: FOR TESTING
+EXPLORE = EPISODES * 0.2
+# EXPLORE = 700
 # EPISODES = 10000
 
 
@@ -214,6 +219,10 @@ for episode in range(EPISODES):
                     action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
                     if len(robot_positions) > 0:
                         cur_state = environment.sym_move(action, robot)
+                        while environment.environment[0][cur_state[1]][cur_state[0]] == 1:
+                            action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+                            cur_state = environment.sym_move(action, robot)
+
                         status = True
                         for pos in robot_positions:
                             if cur_state[0] == pos[0] and cur_state[1] == pos[1]:
@@ -262,7 +271,6 @@ for episode in range(EPISODES):
             temp /= len(actions)-1
             mean_actions.append(torch.tensor([temp]).view(1,1))
         # plot.graph(episode, t)
-        # exit(1)
         main_memory.push(observations, actions, observations_n, rewards, mean_actions)
         if t == 3 * N * N:
             # if t == N * N:

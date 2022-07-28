@@ -55,6 +55,9 @@ class Environment():
         # self.agent.y_coordinate = y
         agent.x_coordinate = x
         agent.y_coordinate = y
+        agent.previous_x = x
+        agent.previous_y = y
+        agent.stay_count = 0
         # Duplicate code??
         # self.environment[1][self.agent.x_coordinate][self.agent.y_coordinate] = self.budget + 10
         self.environment[1][x][y] = 1
@@ -90,37 +93,45 @@ class Environment():
         old_x, old_y, hit = self.move_robot(action, agent)
 
         # keeping track of the amount of times robot visited this state
-        if self.visit_count.get(agent_id) is None:
-            self.visit_count[agent_id] = {old_x: {old_y: 1}}
-        if self.visit_count[agent_id].get(old_x) is None:
-            self.visit_count[agent_id][old_x] = {old_y: 1}
-        else:
-            if self.visit_count[agent_id][old_x].get(old_y) is None:
-                self.visit_count[agent_id][old_x][old_y] = 1
-            else:
-                self.visit_count[agent_id][old_x][old_y] += 1
+        # if self.visit_count.get(agent_id) is None:
+        #     self.visit_count[agent_id] = {old_x: {old_y: 1}}
+        # if self.visit_count[agent_id].get(old_x) is None:
+        #     self.visit_count[agent_id][old_x] = {old_y: 1}
+        # else:
+        #     if self.visit_count[agent_id][old_x].get(old_y) is None:
+        #         self.visit_count[agent_id][old_x][old_y] = 1
+        #     else:
+        #         self.visit_count[agent_id][old_x][old_y] += 1
 
         # self.agent.steps_given -= 1
         # agent.steps_given -= 1
 
+        # New Lazy Penalty
+        if agent.previous_x == agent.x_coordinate and agent.previous_y == agent.y_coordinate:
+            agent.stay_count += 1
+            reward -= 0.1 * agent.stay_count
+        else:
+            agent.stay_count = 0
+
         if self.environment[2][agent.x_coordinate][agent.y_coordinate] == 0: #0 = unvisited state
-            reward += 1
+            reward += 2
         elif self.environment[2][agent.x_coordinate][agent.y_coordinate] == 1: #2 visited state
             # LAZY PENALTY
             if action == 4:
+                # print(f"[{agent_id}] lazy penalty")
                 reward -= 0.1
             else:
                 try:
                     # reward += -1*self.visit_count[agent_id][agent.x_coordinate][agent.y_coordinate]
-                    reward += -1
+                    # print(f"[{agent_id}] visited state penalty")
+                    reward -= 0.5
                 except KeyError:
-                    reward += -1
+                    reward -= 0.5
 
         # HIT AN OBSTACLE
         if hit:
             reward -= 0.5
-            with open("hits.txt", "a") as fout:
-                fout.write(f"{agent_id} {agent}")
+            print(f"[{agent_id}] hit penalty")
         """
         each state is represented as [0, 0, 0]cla
 
@@ -148,8 +159,7 @@ class Environment():
             
         return self.environment, old_x, reward, done, old_y
 
-    @staticmethod
-    def sym_move(action, agent):
+    def sym_move(self, action, agent):
         old_x, old_y = agent.x_coordinate, agent.y_coordinate
         actions = {
             0: (agent.x_coordinate, agent.y_coordinate + 1),      #   up
@@ -166,6 +176,20 @@ class Environment():
         This is checking to make sure that the robot is not going out of bounds
         
         """
+        if agent.x_coordinate > self.N:
+            agent.x_coordinate = old_x
+        elif agent.x_coordinate < 0:
+            agent.x_coordinate = old_x
+        if agent.y_coordinate > self.N:
+            agent.y_coordinate = old_y
+        elif agent.y_coordinate < 0:
+            agent.y_coordinate = old_y
+
+        # checking if agent is hitting an obstacle
+        if self.environment[0][agent.x_coordinate][agent.y_coordinate] == 1:
+            agent.x_coordinate = old_x
+            agent.y_coordinate = old_y
+
         new_state = actions[action.flatten()[0].item()]
         agent.x_coordinate = old_x
         agent.y_coordinate = old_y
@@ -206,8 +230,8 @@ class Environment():
                 agent.x_coordinate = old_x
                 agent.y_coordinate = old_y
                 return old_x, old_y, True
-            if self.environment[1][agent.x_coordinate][agent.y_coordinate] == 1:
-                return old_x, old_y, True
+            # if self.environment[1][agent.x_coordinate][agent.y_coordinate] == 1:
+            #     return old_x, old_y, True
             return old_x, old_y, False
 
     def get_action(self, action, x_coordinate, y_coordinate):

@@ -22,6 +22,9 @@ class Robot():
         self.x_coordinate = 0
         self.y_coordinate = 0
         self.steps = 0
+        self.previous_x = 0
+        self.previous_y = 0
+        self.stay_count = 0
         #self.action_space=7
         #self.decay = 2000
         #self.steps_given = 100
