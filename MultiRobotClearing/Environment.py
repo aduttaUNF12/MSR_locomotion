@@ -8,14 +8,15 @@ import numpy as np
 class Environment():
     """
             position [0] is keeping track of the obstacle locations
-            position [1] is keeping track of the robots' location
+            position [1] friendly location
             position [2] is keeping track of all the previous positions the robot has visited
+            position [3] current robot
     """
     def __init__(self, N):
         self.N = N
-        self.environment = torch.zeros((3,self.N, self.N))
-        self.action_count = 9
-        self.states = self.N * self.N * 3
+        self.environment = torch.zeros((4, self.N, self.N))
+        self.action_count = 5
+        self.states = self.N * self.N * 4
         self.done = False
         self.p_completion = 0.0
         self.environment[0][7][6] = 1
@@ -36,7 +37,7 @@ class Environment():
 
 #
     def init_reset(self):
-        self.environment = torch.zeros((3 ,16, 16))
+        self.environment = torch.zeros((4 ,16, 16))
         self.p_completion = 0.0
 
     def reset(self, agent, x=0, y=0):
@@ -76,7 +77,7 @@ class Environment():
     def get_state(self):
         return self.environment
 
-    def step(self, action, agent, agent_id):
+    def step(self, action, agent, agent_id, personal_env):
         done = False
         reward = 0
         
@@ -139,6 +140,7 @@ class Environment():
             position [0] is keeping track of of the obstacle locations
             position [1] is keeping track of the robots location
             position [2] is keeping track of all the previous positions the robot has visited
+            position [3] current possition
         Line 157: is setting the previous state back to 0
         Line 158: is setting the current position of the robot
         Line 159: is setting the value of the third index to two to keep track of the robots steps
@@ -146,6 +148,8 @@ class Environment():
         self.environment[1][old_x][old_y] = 0   # replacing 1 from previous state
         # self.environment[1][self.agent.x_coordinate][self.agent.y_coordinate]= self.agent.steps_given + 10 #1 = current state
         self.environment[1][agent.x_coordinate][agent.y_coordinate] = 1 #1 = current state
+        personal_env.environment[3][old_x][old_y] = 0
+        personal_env.environment[3][agent.x_coordinate][agent.y_coordinate] = 1
         self.environment[2][old_x][old_y] = 1   # visited state marking
         # the current location should be taken into account while calculating the done flag/completion %
         self.p_completion = (len(torch.nonzero(torch.tensor(self.environment[2]))) +
@@ -157,7 +161,7 @@ class Environment():
             done = True
             reward += 200
             
-        return self.environment, old_x, reward, done, old_y
+        return self.environment, old_x, reward, done, old_y, personal_env
 
     def sym_move(self, action, agent):
         old_x, old_y = agent.x_coordinate, agent.y_coordinate

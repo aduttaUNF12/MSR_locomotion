@@ -23,13 +23,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 N = 16
 NUM_MODULES = 4     # number of robots
+# NUM_MODULES = 2     # number of robots
 robots = []
+main_environment = Environment(N)
+environments = []       # only to hold robot's position and friendly positions
+# environments.append(Environment(N))
 for r in range(NUM_MODULES):
     robots.append(Robot())
+    environments.append(Environment(N))
 # robot = Robot()
-environment = Environment(N)
-state_size = 3 * N * N
-m_actions = environment.action_count
+# environment = Environment(N)
+state_size = 4 * N * N
+# m_actions = environment.action_count
+m_actions = environments[0].action_count
 embedding_size = 8
 minibatch = 64
 # buffer = 10000 * state_size
@@ -55,6 +61,7 @@ blind_prob = 0
 EPISODES = 2000
 # EXPLORE = 3000
 # TODO: FOR TESTING
+# EXPLORE = 1
 EXPLORE = EPISODES * 0.2
 # EXPLORE = 700
 # EPISODES = 10000
@@ -97,11 +104,19 @@ def optimize_model(episode, model, model_target, adam, memory, scheduler, r_id):
     n_obs = []
     rwd = []
     macts = []
-    for m in memory[0]:
+    for p, m in enumerate(memory[0]):
+        # making env[1] have all friendlies (so removing this robot's position)
+        m[r_id][0][1][memory[5][p][r_id][0]][memory[5][p][r_id][1]] = 0
+        # making env[3] have me
+        m[r_id][0][3][memory[5][p][r_id][0]][memory[5][p][r_id][1]] = 1
         obs.append(m[r_id])
     for m in memory[1]:
         act.append(m[r_id])
-    for m in memory[2]:
+    for p, m in enumerate(memory[2]):
+        # making env[1] have all friendlies
+        m[r_id][0][1][memory[6][p][r_id][0]][memory[6][p][r_id][1]] = 0
+        # making env[3] have me
+        m[r_id][0][3][memory[6][p][r_id][0]][memory[6][p][r_id][1]] = 1
         n_obs.append(m[r_id])
     for m in memory[3]:
         rwd.append(m[r_id])
@@ -150,17 +165,24 @@ total_steps = 0
 start = time.time()
 
 # Initial Environment reset and robot placement
-environment.init_reset()
-for robot_id, robot in enumerate(robots):
-    # print(f"[{robot_id}] ({robot_id*4},{robot_id*4+3})")
-    if robot_id == 0:
-        environment.reset(x=0, y=0, agent=robot)
-    elif robot_id == 1:
-        environment.reset(x=0, y=N-1, agent=robot)
-    elif robot_id == 2:
-        environment.reset(x=N-1, y=0, agent=robot)
-    elif robot_id == 3:
-        environment.reset(x=N-1, y=N-1, agent=robot)
+main_environment.init_reset()
+
+for env in environments:
+    env.init_reset()
+    for robot_id, robot in enumerate(robots):
+        # print(f"[{robot_id}] ({robot_id*4},{robot_id*4+3})")
+        if robot_id == 0:
+            env.reset(x=0, y=0, agent=robot)
+            main_environment.reset(x=0, y=0, agent=robot)
+        elif robot_id == 1:
+            env.reset(x=0, y=N-1, agent=robot)
+            main_environment.reset(x=0, y=N-1, agent=robot)
+        elif robot_id == 2:
+            env.reset(x=N-1, y=0, agent=robot)
+            main_environment.reset(x=N-1, y=0, agent=robot)
+        elif robot_id == 3:
+            env.reset(x=N-1, y=N-1, agent=robot)
+            main_environment.reset(x=N-1, y=N-1, agent=robot)
 # print(f"Env1: {environment.environment[1]}")
 
 for episode in range(EPISODES):
@@ -174,7 +196,7 @@ for episode in range(EPISODES):
         ep_rwd[robot_id] = 0.0
 
     #last_observation = environment.environment
-    observation = environment.environment
+    observation = environments[0].environment
     coordinates = {}
     for robot_id, robot in enumerate(robots):
         coordinates[robot_id] = []
@@ -186,17 +208,23 @@ for episode in range(EPISODES):
         loss_sum[robot_id] = 0
     mean_actions = []
     # Initial Environment reset and robot placement
-    environment.init_reset()
-    for robot_id, robot in enumerate(robots):
-        # print(f"[{robot_id}] ({robot_id*4},{robot_id*4+3})")
-        if robot_id == 0:
-            environment.reset(x=0, y=0, agent=robot)
-        elif robot_id == 1:
-            environment.reset(x=0, y=N-1, agent=robot)
-        elif robot_id == 2:
-            environment.reset(x=N-1, y=0, agent=robot)
-        elif robot_id == 3:
-            environment.reset(x=N-1, y=N-1, agent=robot)
+    main_environment.init_reset()
+    for env in environments:
+        env.init_reset()
+        for robot_id, robot in enumerate(robots):
+            # print(f"[{robot_id}] ({robot_id*4},{robot_id*4+3})")
+            if robot_id == 0:
+                env.reset(x=0, y=0, agent=robot)
+                main_environment.reset(x=0, y=0, agent=robot)
+            elif robot_id == 1:
+                env.reset(x=0, y=N-1, agent=robot)
+                main_environment.reset(x=0, y=N-1, agent=robot)
+            elif robot_id == 2:
+                env.reset(x=N-1, y=0, agent=robot)
+                main_environment.reset(x=N-1, y=0, agent=robot)
+            elif robot_id == 3:
+                env.reset(x=N-1, y=N-1, agent=robot)
+                main_environment.reset(x=N-1, y=N-1, agent=robot)
     plot = None
     # plot = Plotter(N, environment.environment, environment.environment[0])
 
@@ -206,6 +234,8 @@ for episode in range(EPISODES):
         observations = []
         rewards = []
         robot_positions = []
+        coordinates_ = []
+        coordinates_n = []
         for robot_id, robot in enumerate(robots):
             if len(mean_actions) > 0:
                 m_a = mean_actions[robot_id]
@@ -218,12 +248,16 @@ for episode in range(EPISODES):
             robot.previous_y = robot.y_coordinate
             try:
                 while True:
-                    action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+                    temp_observation = torch.tensor(observation).view(1, 4, N, N)
+                    temp_observation[0][1][robot.x_coordinate][robot.y_coordinate] = 0
+                    temp_observation[0][3][robot.x_coordinate][robot.y_coordinate] = 1
+                    # action, EPS = robot.select_action(torch.tensor(observation).view(1, 4, N, N), models[robot_id], main_environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+                    action, EPS = robot.select_action(temp_observation, models[robot_id], main_environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
                     if len(robot_positions) > 0:
-                        cur_state = environment.sym_move(action, robot)
-                        while environment.environment[0][cur_state[1]][cur_state[0]] == 1:
-                            action, EPS = robot.select_action(torch.tensor(observation).view(1, 3, N, N), models[robot_id], environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
-                            cur_state = environment.sym_move(action, robot)
+                        cur_state = main_environment.sym_move(action, robot)
+                        while main_environment.environment[0][cur_state[1]][cur_state[0]] == 1:
+                            action, EPS = robot.select_action(torch.tensor(observation).view(1, 4, N, N), models[robot_id], main_environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
+                            cur_state = main_environment.sym_move(action, robot)
 
                         status = True
                         for pos in robot_positions:
@@ -245,14 +279,19 @@ for episode in range(EPISODES):
                 print(len(mean_actions))
                 exit(1)
             # print(f"[{robot_id}] action taken: {action[0][0]}  Episode: {episode}")
-            sym = environment.sym_move(action, robot)
+            sym = main_environment.sym_move(action, robot)
             robot_positions.append(sym)
+            # keeps track of robot position
+            coordinates_.append((robot.x_coordinate, robot.y_coordinate))
             # plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
-            next_observation, old_x, reward, done, old_y = environment.step(action, robot, robot_id)
+            next_observation, old_x, reward, done, old_y, personal_env = main_environment.step(action, robot, robot_id, environments[robot_id])
+            # TODO: to remove myself from the environment
+            #   main_environment.environment[1][robots[robot_id].x_coordinate][robots[robot_id].y_coordinate]=0
             # plot.move(robot_id+1, robot.x_coordinate, robot.y_coordinate)
-            observations_n.append(next_observation.view(1, 3, N, N))
+            observations_n.append(next_observation.view(1, 4, N, N))
+            coordinates_n.append((robot.x_coordinate, robot.y_coordinate))
             actions.append(action)
-            observations.append(observation.view(1, 3, N, N))
+            observations.append(observation.view(1, 4, N, N))
             rewards.append(reward)
             total_steps += 1
             #if environment.agent.steps_given >= 0:
@@ -265,20 +304,26 @@ for episode in range(EPISODES):
         # print(f"completion: {environment.p_completion}(EP: {episode})\nMap: {environment.environment[2]}\nLocations: {environment.environment[1]}")
 
         mean_actions.clear()
-        for i, d in enumerate(actions):
-            temp = 0.0
-            for ii, di in enumerate(actions):
-                if i != ii:
-                    temp += actions[ii]
-            temp /= len(actions)-1
-            mean_actions.append(torch.tensor([temp]).view(1,1))
+        if len(robots) >= 2:
+            for i, d in enumerate(actions):
+                temp = 0.0
+                for ii, di in enumerate(actions):
+                    if i != ii:
+                        temp += actions[ii]
+                temp /= len(actions)-1
+                mean_actions.append(torch.tensor([temp]).view(1,1))
         # plot.graph(episode, t)
-        main_memory.push(observations, actions, observations_n, rewards, mean_actions)
-        if t == 3 * N * N:
+
+        # for robot_id, robot in enumerate(robots):
+        #     memories[robot_id].push(observations, actions, observations_n, rewards, mean_actions)
+        main_memory.push(observations, actions, observations_n, rewards, mean_actions, coordinates_, coordinates_n)
+        if t == 1000:
+            # if t == 64:
+            # if t == 3 * N * N:
             # if t == N * N:
             done = True
         if done:
-            percentage_covered.append((episode, environment.p_completion))
+            percentage_covered.append((episode, main_environment.p_completion))
             episode_coordinates.append((episode, coordinates))
             epsilon_tracker.append((episode, EPS))
             ep_rwd_avg = 0.0
@@ -287,20 +332,21 @@ for episode in range(EPISODES):
             ep_rwd_avg = ep_rwd_avg/len(robots)
             # reward_tracker.append((episode, int(ep_rwd)))
             reward_tracker.append((episode, float(ep_rwd_avg)))
-            all_data.append((episode, environment.p_completion, EPS, int(ep_rwd_avg), t, loss_sum[0]))
+            all_data.append((episode, main_environment.p_completion, EPS, int(ep_rwd_avg), t, loss_sum[0]))
             end = time.time()
             # print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {int(ep_rwd)}")
-            print(f"Comp. {environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {float(ep_rwd_avg)}")
+            print(f"Comp. {main_environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {float(ep_rwd_avg)}")
             print(f"Total number of steps were {t}")
             # plot.to_gif(episode)
             # with open("./graphs/Episode_{}/reward_{}_{}.txt".format(episode, "p" if ep_rwd_avg > 0 else "n", float(ep_rwd_avg)), "w") as fout:
             #     fout.write("{}\n".format(float(ep_rwd_avg)))
             break
         if episode > EXPLORE:
-            observations, actions, next_observations, rewards, mean_actions_ = main_memory.sample_with_batch(minibatch)
+            observations, actions, next_observations, rewards, mean_actions_, coordinates__, coordinates__n = main_memory.sample_with_batch(minibatch)
             # possible indexing of named tuples
-            push_data = [observations, actions, next_observations, rewards, mean_actions_]
             for robot_id, robot in enumerate(robots):
+                # observations, actions_throwaway, next_observations, rewards_throwaway, mean_actions_throwawa = memories[robot_id].sample_with_batch(minibatch)
+                push_data = [observations, actions, next_observations, rewards, mean_actions_, coordinates__, coordinates__n]
                 loss, eps = optimize_model(episode, models[robot_id], model_targets[robot_id],
                                            adams[robot_id], push_data, schedulers[robot_id], robot_id)
                 EPS = eps

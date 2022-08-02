@@ -10,7 +10,7 @@ class ExpBuffer():
         self.max_storage = max_storage
         self.length = length
         self.memory = deque([], maxlen=max_storage)
-        self.Transitions = namedtuple('Transition', ('observation', 'next_observation', 'action', 'reward', 'mean_action'))
+        self.Transitions = namedtuple('Transition', ('observation', 'next_observation', 'action', 'reward', 'mean_action', 'coordinates', 'coordinates_n'))
         self.steps = []
         self.counter = -1
         self.filled = -1

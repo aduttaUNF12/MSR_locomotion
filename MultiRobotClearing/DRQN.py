@@ -11,13 +11,13 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.random_actions = 0
         self.model_actions = 0
-        self.n_actions = 7
+        self.n_actions = 5
         self.embedding_size = 8
         self.width = 16
         self.height = 16
         self.to(gpu)
         self.embedder = nn.Linear(self.n_actions, self.embedding_size).to(gpu)
-        self.observation_layer = nn.Conv2d(3, 16, kernel_size=5, stride=1).to(gpu)
+        self.observation_layer = nn.Conv2d(4, 16, kernel_size=5, stride=1).to(gpu)
         self.norm1 = nn.BatchNorm2d(8).to(gpu)
         self.observation_layer2 = nn.Conv2d(16, 16, kernel_size=5, stride=1).to(gpu)
         self.norm2 = nn.BatchNorm2d(8).to(gpu)
