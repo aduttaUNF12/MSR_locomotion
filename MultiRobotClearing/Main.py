@@ -49,36 +49,46 @@ def optimize_model(episode, model, model_target, adam, memory, scheduler, r_id):
     n_obs = []
     rwd = []
     macts = []
+    n_macts = []
+    # observations
     for p, m in enumerate(memory[0]):
         # making env[1] have all friendlies (so removing this robot's position)
         # m[r_id][0][1][memory[5][p][r_id][0]][memory[5][p][r_id][1]] = 0
         # making env[3] have me
         # m[r_id][0][3][memory[5][p][r_id][0]][memory[5][p][r_id][1]] = 1
         obs.append(m[r_id])
+    # actions
     for m in memory[1]:
         act.append(m[r_id])
+    # previous observations
     for p, m in enumerate(memory[2]):
         # making env[1] have all friendlies
         # m[r_id][0][1][memory[6][p][r_id][0]][memory[6][p][r_id][1]] = 0
         # making env[3] have me
         # m[r_id][0][3][memory[6][p][r_id][0]][memory[6][p][r_id][1]] = 1
         n_obs.append(m[r_id])
+    # rewards
     for m in memory[3]:
         rwd.append(m[r_id])
+    # mean actions
     for m in memory[4]:
-        macts.append([m[r_id+1]])
+        macts.append([m[r_id]])
+    # previous mean actions
+    for m in memory[7]:
+        n_macts.append([m[r_id]])
 
     obs = torch.cat(obs).to(device)
     act = torch.cat(act).to(device)
     n_obs = torch.cat(n_obs).to(device)
     rwd = torch.tensor(rwd).to(device)
     macts = torch.tensor(macts).to(device)
+    n_macts = torch.tensor(n_macts).to(device)
     obs.requires_grad = True
     n_obs.requires_grad = True
 
     q_values = model(obs, macts).gather(1, act).to(device)
 
-    target_q_values = model_target(n_obs, macts).max(1)[0].detach().to(device)
+    target_q_values = model_target(n_obs, n_macts).max(1)[0].detach().to(device)
 
     final_results = rwd.double() + (gamma * target_q_values.double())
 
@@ -144,6 +154,10 @@ for episode in range(EPISODES):
     mean_actions = {}
     for robot in robots:
         mean_actions[robot.agent_id] = 0.0
+    # previous mean action tracker
+    mean_actions_n = {}
+    for robot in robots:
+        mean_actions_n[robot.agent_id] = 0.0
 
     done = False
     hidden = None
@@ -168,7 +182,7 @@ for episode in range(EPISODES):
 
         for robot in robots:
             # getting mean action of the robot
-            m_a = mean_actions[robot.agent_id]
+            m_a = torch.tensor([mean_actions[robot.agent_id]]).view(1,1)
             # getting state based on the current robot
             observation = main_environment.get_state(robot)
             # flattening the state
@@ -178,7 +192,6 @@ for episode in range(EPISODES):
                                               main_environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
             # taking a step for current robot
             next_observation, old_x, reward, done, old_y = main_environment.step(action, robot)
-
             observations_n.append(next_observation.view(1, 4, N, N))
             coordinates_n.append((robot.x_coordinate, robot.y_coordinate))
             actions.append(action)
@@ -191,6 +204,10 @@ for episode in range(EPISODES):
             ep_rwd[robot.agent_id] += reward
             coordinates[robot.agent_id].append((robot.x_coordinate, robot.y_coordinate))
             step_count += 1
+        # saving previous mean actions
+        if len(robots) >= 2:
+            for i, d in enumerate(robots):
+                mean_actions_n[i+1] = mean_actions[i+1]
 
         # calculating mean action
         mean_actions.clear()
@@ -201,11 +218,20 @@ for episode in range(EPISODES):
                     if i != ii:
                         temp += actions[ii]
                 temp /= len(actions)-1
-                mean_actions[i+1] = torch.tensor([temp]).view(1,1)
+                # mean_actions[i+1] = torch.tensor([temp]).view(1,1)
+                mean_actions[i+1] = temp
 
         # plot.graph(episode, t)
+        temp_mean_action = []
+        temp_mean_action_n = []
+        # this prevents the expbuffer bug
+        for robot in robots:
+            temp_mean_action.append(mean_actions[robot.agent_id])
+            temp_mean_action_n.append(mean_actions_n[robot.agent_id])
 
-        main_memory.push(observations, actions, observations_n, rewards, mean_actions, coordinates_, coordinates_n)
+        main_memory.push(observations, observations_n, actions, rewards, temp_mean_action, coordinates_, coordinates_n, temp_mean_action_n)
+        del temp_mean_action, temp_mean_action_n
+        mean_actions_n.clear()
         if t == 200:
             done = True
         if done:
@@ -233,11 +259,11 @@ for episode in range(EPISODES):
             break
 
         if episode > EXPLORE:
-            observations, actions, next_observations, rewards, mean_actions_, coordinates__, coordinates__n = main_memory.sample_with_batch(sample_length)
+            observations, next_observations, actions, rewards, mean_actions_, coordinates__, coordinates__n, mean_actions__n = main_memory.sample_with_batch(sample_length)
             # possible indexing of named tuples
             for robot_id, robot in enumerate(robots):
                 push_data = [observations, actions, next_observations,
-                             rewards, mean_actions_, coordinates__, coordinates__n]
+                             rewards, mean_actions_, coordinates__, coordinates__n, mean_actions__n]
                 loss, eps = optimize_model(episode, model, model_target,
                                            adam, push_data, scheduler, robot_id)
                 EPS = eps

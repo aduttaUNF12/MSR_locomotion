@@ -8,7 +8,7 @@ class ExpBuffer():
         self.max_storage = max_storage
         self.length = length
         self.memory = deque([], maxlen=max_storage)
-        self.Transitions = namedtuple('Transition', ('observation', 'next_observation', 'action', 'reward', 'mean_action', 'coordinates', 'coordinates_n'))
+        self.Transitions = namedtuple('Transition', ('observation', 'next_observation', 'action', 'reward', 'mean_action', 'coordinates', 'coordinates_n', 'mean_actions_n'))
         self.steps = []
         self.counter = -1
         self.filled = -1
@@ -24,8 +24,8 @@ class ExpBuffer():
         self.steps = []
 
     def sample_with_batch(self, batch_size, seed=None):
-        if seed:
-            random.seed(seed)
+        # if seed:
+        #     random.seed(seed)
         batch = random.sample(self.memory, batch_size)
         batch = self.Transitions(*zip(*batch))
         return batch
