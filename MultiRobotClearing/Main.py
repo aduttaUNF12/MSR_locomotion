@@ -24,11 +24,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 robots = []
 # Main environment
 main_environment = Environment(N, action_count)
-
+memories = []
 for r_id, r in enumerate(range(NUM_MODULES)):
     robots.append(Agent(r_id+1))
+    memories.append(ExpBuffer(buffer, sample_length))
 
 main_memory = ExpBuffer(buffer, sample_length)
+
 
 model = Model().double().to(device)
 model_target = Model().double().to(device)
@@ -44,51 +46,21 @@ def optimize_model(episode, model, model_target, adam, memory, scheduler, r_id):
           math.exp(-1. * (episode - EXPLORE) / eps_decay)
     difference_function = torch.nn.MSELoss()
     # memory = [observations, actions, next_observations, rewards, mean_actions]
-    obs = []
-    act = []
-    n_obs = []
-    rwd = []
-    macts = []
-    n_macts = []
-    # observations
-    for p, m in enumerate(memory[0]):
-        # making env[1] have all friendlies (so removing this robot's position)
-        # m[r_id][0][1][memory[5][p][r_id][0]][memory[5][p][r_id][1]] = 0
-        # making env[3] have me
-        # m[r_id][0][3][memory[5][p][r_id][0]][memory[5][p][r_id][1]] = 1
-        obs.append(m[r_id])
-    # actions
-    for m in memory[1]:
-        act.append(m[r_id])
-    # previous observations
-    for p, m in enumerate(memory[2]):
-        # making env[1] have all friendlies
-        # m[r_id][0][1][memory[6][p][r_id][0]][memory[6][p][r_id][1]] = 0
-        # making env[3] have me
-        # m[r_id][0][3][memory[6][p][r_id][0]][memory[6][p][r_id][1]] = 1
-        n_obs.append(m[r_id])
-    # rewards
-    for m in memory[3]:
-        rwd.append(m[r_id])
-    # mean actions
-    for m in memory[4]:
-        macts.append([m[r_id]])
-    # previous mean actions
-    for m in memory[7]:
-        n_macts.append([m[r_id]])
 
-    obs = torch.cat(obs).to(device)
-    act = torch.cat(act).to(device)
-    n_obs = torch.cat(n_obs).to(device)
-    rwd = torch.tensor(rwd).to(device)
-    macts = torch.tensor(macts).to(device)
-    n_macts = torch.tensor(n_macts).to(device)
+
+    obs = torch.cat(memory[0]).to(device)
+    n_obs = torch.cat(memory[2]).to(device)
+    act = torch.cat(memory[1]).to(device)
+    n_act = torch.tensor(memory[8]).to(device)
+    rwd = torch.tensor(memory[3]).to(device)
+    macts = torch.tensor(memory[4]).to(device)
+    n_macts = torch.tensor(memory[7]).to(device)
     obs.requires_grad = True
     n_obs.requires_grad = True
 
-    q_values = model(obs, macts).gather(1, act).to(device)
+    q_values = model(obs, act).gather(1, act).to(device)
 
-    target_q_values = model_target(n_obs, n_macts).max(1)[0].detach().to(device)
+    target_q_values = model_target(n_obs, n_act).max(1)[0].detach().to(device)
 
     final_results = rwd.double() + (gamma * target_q_values.double())
 
@@ -122,18 +94,30 @@ main_environment.reset()
 
 # resets robot positions
 def restart():
+    main_environment.reset()
     for robot in robots:
         if robot.agent_id == 1:
-            main_environment.set_personal_pos(robot, x=0, y=0, reset=True)
+            main_environment.reset(robot, x=0, y=0)
         elif robot.agent_id == 2:
-            main_environment.set_personal_pos(robot, x=0, y=N-1, reset=True)
+            main_environment.reset(robot, x=0, y=N-1)
         elif robot.agent_id == 3:
-            main_environment.set_personal_pos(robot, N-1, y=0, reset=True)
+            main_environment.reset(robot, N-1, y=0)
         elif robot.agent_id == 4:
-            main_environment.set_personal_pos(robot, x=N-1, y=N-1, reset=True)
+            main_environment.reset(robot, x=N-1, y=N-1)
 
 
 restart()
+overall_steps = 0
+
+robot_coordinates = {
+    1: [],
+    2: [],
+    3: [],
+    4: [],
+}
+robot_coordinates_episode = {
+
+}
 
 for episode in range(EPISODES):
     torch.cuda.empty_cache()    # for optimization of the code
@@ -158,6 +142,10 @@ for episode in range(EPISODES):
     mean_actions_n = {}
     for robot in robots:
         mean_actions_n[robot.agent_id] = 0.0
+    # action tracker for all robots
+    actions_n = {}
+    for robot in robots:
+        actions_n[robot.agent_id] = 0.0
 
     done = False
     hidden = None
@@ -165,9 +153,18 @@ for episode in range(EPISODES):
     tracker = 0
 
     # Initial Environment reset and robot placement
-    main_environment.reset()
     restart()
-
+    # print(main_environment.env[0])
+    # print(main_environment.env[1])
+    # print(main_environment.env[2])
+    # print(main_environment.env[3])
+    # print(main_environment.env[4])
+    # exit(1)
+    # print("****************************************")
+    # print("RESET COORDINATES")
+    # for robot in robots:
+    #     print(f"{robot.agent_id} -- ({robot.x_coordinate}, {robot.y_coordinate})")
+    # print("****************************************")
     plot = None
     # plot = Plotter(N, environment.environment, environment.environment[0])
 
@@ -182,28 +179,53 @@ for episode in range(EPISODES):
 
         for robot in robots:
             # getting mean action of the robot
-            m_a = torch.tensor([mean_actions[robot.agent_id]]).view(1,1)
+            if NUM_MODULES >= 2:
+                m_a = torch.tensor([mean_actions[robot.agent_id]]).view(1,1)
+            else:
+                m_a = torch.tensor([0.0]).view(1,1)
             # getting state based on the current robot
             observation = main_environment.get_state(robot)
             # flattening the state
             observation = torch.tensor(observation).view(1, 4, N, N)
             # getting action and new EPS value
+
+            robot_coordinates[robot.agent_id].append((robot.y_coordinate, robot.x_coordinate))
             action, EPS = robot.select_action(observation, model,
                                               main_environment, EPS, mean_action=torch.tensor(m_a).view(1,1))
             # taking a step for current robot
+            # print("Env 0")
+            # print(main_environment.env[0])
+            # print("Env 1")
+            # print(main_environment.env[1])
+            # print("Env 2")
+            # Maybe it should keep track of all previous robot locations instead of all
+            # print(main_environment.env[2])
+            # print("Env 3")
+            # print(main_environment.env[3])
+            # print("Env 4")
+            # print(main_environment.env[4])
+            # print(f"step for {robot.agent_id}")
             next_observation, old_x, reward, done, old_y = main_environment.step(action, robot)
+
+
             observations_n.append(next_observation.view(1, 4, N, N))
-            coordinates_n.append((robot.x_coordinate, robot.y_coordinate))
+
+            coordinates_n.append((robot.y_coordinate, robot.x_coordinate))
             actions.append(action)
+
             observations.append(observation.view(1, 4, N, N))
+
             rewards.append(reward)
             total_steps += 1
             reward = torch.tensor([reward])
             observation = next_observation
             # keep track of episodic reward
             ep_rwd[robot.agent_id] += reward
-            coordinates[robot.agent_id].append((robot.x_coordinate, robot.y_coordinate))
-            step_count += 1
+
+            coordinates[robot.agent_id].append((robot.y_coordinate, robot.x_coordinate))
+
+        step_count += 1
+        overall_steps += 1
         # saving previous mean actions
         if len(robots) >= 2:
             for i, d in enumerate(robots):
@@ -224,17 +246,41 @@ for episode in range(EPISODES):
         # plot.graph(episode, t)
         temp_mean_action = []
         temp_mean_action_n = []
+        temp_action_n = []
         # this prevents the expbuffer bug
         for robot in robots:
-            temp_mean_action.append(mean_actions[robot.agent_id])
-            temp_mean_action_n.append(mean_actions_n[robot.agent_id])
+            if NUM_MODULES >= 2:
+                temp_mean_action.append(mean_actions[robot.agent_id])
+                temp_mean_action_n.append(mean_actions_n[robot.agent_id])
+            else:
+                temp_mean_action.append(0.0)
+                temp_mean_action_n.append(0.0)
+            temp_action_n.append([actions_n[robot.agent_id]])
 
-        main_memory.push(observations, observations_n, actions, rewards, temp_mean_action, coordinates_, coordinates_n, temp_mean_action_n)
-        del temp_mean_action, temp_mean_action_n
+        for robot in robots:
+            memories[robot.agent_id-1].push(observations[robot.agent_id-1], observations_n[robot.agent_id-1],
+                                            actions[robot.agent_id-1], rewards[robot.agent_id-1],
+                                            temp_mean_action[robot.agent_id-1], coordinates_, coordinates_n,
+                                            temp_mean_action_n[robot.agent_id-1], temp_action_n[robot.agent_id-1])
+
+        main_memory.push(observations, observations_n, actions, rewards, temp_mean_action, coordinates_, coordinates_n, temp_mean_action_n, temp_action_n)
+
+        for p, robot in enumerate(robots):
+            actions_n[robot.agent_id] = actions[p]
+
+        del temp_mean_action, temp_mean_action_n, temp_action_n
         mean_actions_n.clear()
-        if t == 200:
+
+        if t == 300:
             done = True
         if done:
+            robot_coordinates_episode[episode] = robot_coordinates
+            robot_coordinates = {
+                1: [],
+                2: [],
+                3: [],
+                4: [],
+            }
             percentage_covered.append((episode, main_environment.p_completion))
             episode_coordinates.append((episode, coordinates))
             epsilon_tracker.append((episode, EPS))
@@ -256,31 +302,42 @@ for episode in range(EPISODES):
             end = time.time()
             print(f"Comp. {main_environment.p_completion*100: .2f}%, ep.: {episode} st: {t}, EPS: {EPS: .2f}, T: {(end-start)/60: .2f} mins., R: {float(ep_rwd_avg)}")
             print(f"Total number of steps were {t}")
-            break
 
-        if episode > EXPLORE:
-            observations, next_observations, actions, rewards, mean_actions_, coordinates__, coordinates__n, mean_actions__n = main_memory.sample_with_batch(sample_length)
+
+        # if episode > EXPLORE and done:
+        if overall_steps > 100000 and done:
+            batch = main_memory.sample_pos(batch_size=sample_length)
+
             # possible indexing of named tuples
             for robot_id, robot in enumerate(robots):
+                observations, next_observations, actions, rewards, mean_actions_, coordinates__, coordinates__n, mean_actions__n, actions__n  = memories[robot_id].get_by_pos(batch)
                 push_data = [observations, actions, next_observations,
-                             rewards, mean_actions_, coordinates__, coordinates__n, mean_actions__n]
+                             rewards, mean_actions_, coordinates__, coordinates__n, mean_actions__n, actions__n]
                 loss, eps = optimize_model(episode, model, model_target,
                                            adam, push_data, scheduler, robot_id)
                 EPS = eps
                 loss_sum[robot_id+1] += float(loss)
                 tracker = t
 
-    if episode > EXPLORE:
-        loss_avg = 0
-        for robot_id, robot in enumerate(robots):
-            loss_avg += loss_sum[robot_id+1]
-        loss_avg = loss_avg/len(robots)
-        loss_values.append((episode, loss_avg / tracker))
-        logging.info(f"The loss for episode: {episode} is {loss_avg / tracker}")
 
-    if episode % 10 == 0:
-        model_target.load_state_dict(model.state_dict())
+        # if episode > EXPLORE and done:
+        if overall_steps > 100000 and done:
+            loss_avg = 0
+            for robot_id, robot in enumerate(robots):
+                loss_avg += loss_sum[robot_id+1]
+            loss_avg = loss_avg/len(robots)
+            loss_values.append((episode, loss_avg / tracker))
+            logging.info(f"The loss for episode: {episode} is {loss_avg / tracker}")
+            print(f"***The loss for episode: {episode} is {loss_avg / tracker}")
 
+        if episode % 10 == 0:
+            model_target.load_state_dict(model.state_dict())
 
+        if t >= 300 or done:
+            break
+
+import json
+with open("robot_actions.json", "w") as fout:
+    json.dump(robot_coordinates_episode, fout)
 pd.DataFrame(all_data, columns=["Episode", "Completed", "Epsilon", "Rewards", "Steps", "Loss"]).to_csv("resultsData.csv", index=False)
 pd.DataFrame(episode_coordinates, columns=["Episode", "Coordinates"]).to_csv("EpisodeCoordinates.csv", index=False)

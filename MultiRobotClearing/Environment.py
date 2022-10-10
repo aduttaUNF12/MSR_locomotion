@@ -54,10 +54,6 @@ class Environment():
 
     # resetting map
     def reset(self, agent=None, x=0, y=0):
-        self.env = torch.zeros((5, self.N, self.N))
-        self.p_completion = 0.0
-        self.set_obstacles(self.obstacles_map)
-
         if agent:
             agent.steps = 0
             agent.stay_count = 0
@@ -65,7 +61,12 @@ class Environment():
             agent.y_coordinate = y
             agent.previous_x = x
             agent.previous_y = y
+            # self.env[3][x][y] = agent.agent_id
             self.set_personal_pos(agent, x, y)
+        else:
+            self.env = torch.zeros((5, self.N, self.N))
+            self.p_completion = 0.0
+            self.set_obstacles(self.obstacles_map)
 
         return self.env
 
@@ -73,13 +74,16 @@ class Environment():
     #   with modified Friendlies and Personal layers,
     #   omitting the last (ALL) layer
     def get_state(self, agent):
-        # clone of env
-        agent_env = self.env
+        # agent_env = self.env
+        agent_env = self.env.clone().detach()
+        # if agent.agent_id == 2:
+        #     print(f"MAIN ENV 4 {self.env[4]}\nROBOT ENV 4 {agent_env[4]}")
         agent_pos = np.where(agent_env[4] == agent.agent_id)
         # marking robot's current position
         agent_env[3][agent_pos[0][0]][agent_pos[1][0]] = 1
         # copying current all robot positions to layer 1
         agent_env[1] = agent_env[4]
+        # agent_env[1] = agent_env[4].clone().detach()
         # setting position of self to 0
         agent_env[1][agent_pos[0][0]][agent_pos[1][0]] = 0
         # getting positions of all the other robots
@@ -127,8 +131,8 @@ class Environment():
             agent.x_coordinate = old_x
             agent.y_coordinate = old_y
             return old_x, old_y
-
-        return old_x, old_y
+        else:
+            return old_x, old_y
 
     # TODO: remove and make single function
     @staticmethod
@@ -166,7 +170,8 @@ class Environment():
         # TODO: rework
         done = False
         reward = 0.0
-
+        # if agent.agent_id == 2:
+        #     pass
         old_x, old_y = self.move_agent(action, agent)
 
         # New Lazy Penalty
@@ -185,15 +190,15 @@ class Environment():
         self.env[1][old_x][old_y] = 0
         self.env[4][old_x][old_y] = 0
         # 1 = current state
-        self.env[1][agent.x_coordinate][agent.y_coordinate] = 1
-        self.env[4][agent.x_coordinate][agent.y_coordinate] = 1
+        # self.env[1][agent.x_coordinate][agent.y_coordinate] = 1
+        self.env[4][agent.x_coordinate][agent.y_coordinate] = agent.agent_id
         # visited state marking
         self.env[2][old_x][old_y] = 1
         # the current location should be taken into account while calculating the done flag/completion %
         # TODO: double check
         self.p_completion = (len(torch.nonzero(torch.tensor(self.env[2]))) +
                              len(torch.nonzero(torch.tensor(self.env[0])))) / (self.N * self.N)
-
+        # this can be simplified
         if (len(torch.nonzero(torch.tensor(self.env[2]))) +
             len(torch.nonzero(torch.tensor(self.env[0])))) == self.N * self.N:
             done = True
